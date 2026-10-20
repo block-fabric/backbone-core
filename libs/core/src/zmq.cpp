@@ -45,6 +45,8 @@ namespace bt::zmq {
 namespace {
 constexpr size_t MAX_QUEUE_BYTES = 8 * 1024 * 1024; // per subscriber
 constexpr size_t MAX_INBOUND_FRAME = 64 * 1024;     // subscriptions and commands only
+constexpr size_t MAX_SUBS = 1024;                   // per subscriber
+constexpr size_t MAX_SUB_BYTES = 1024 * 1024;       // total topic bytes per subscriber
 
 Bytes greeting()
 {
@@ -93,6 +95,23 @@ struct Peer {
     size_t out_bytes = 0, out_off = 0;
     bool greeted = false, ready = false;
     std::vector<Bytes> subs;
+    size_t sub_bytes = 0;
+    /** false when the peer exceeds the subscription caps (it is then dropped). */
+    bool subscribe(Bytes topic)
+    {
+        if (std::find(subs.begin(), subs.end(), topic) != subs.end()) return true; // duplicate
+        if (subs.size() >= MAX_SUBS || sub_bytes + topic.size() > MAX_SUB_BYTES) return false;
+        sub_bytes += topic.size();
+        subs.push_back(std::move(topic));
+        return true;
+    }
+    void unsubscribe(const Bytes& topic)
+    {
+        auto it = std::find(subs.begin(), subs.end(), topic);
+        if (it == subs.end()) return;
+        sub_bytes -= it->size();
+        subs.erase(it);
+    }
     bool matches(const Bytes& topic) const
     {
         for (auto& p : subs)
@@ -153,10 +172,10 @@ struct Publisher::Impl {
                 std::string name((const char*)body.data() + 1, nl);
                 Bytes data(body.begin() + 1 + nl, body.end());
                 if (name == "READY") p.ready = true;
-                else if (name == "SUBSCRIBE") p.subs.push_back(data);
-                else if (name == "CANCEL") {
-                    auto it = std::find(p.subs.begin(), p.subs.end(), data);
-                    if (it != p.subs.end()) p.subs.erase(it);
+                else if (name == "SUBSCRIBE") {
+                    if (!p.subscribe(std::move(data))) return false;
+                } else if (name == "CANCEL") {
+                    p.unsubscribe(data);
                 } else if (name == "PING") {
                     // PING: ttl(2) context; answer PONG with the context
                     Bytes pong{4};
@@ -170,10 +189,10 @@ struct Publisher::Impl {
                 }
             } else if (!body.empty()) { // legacy subscription message
                 Bytes topic(body.begin() + 1, body.end());
-                if (body[0] == 1) p.subs.push_back(topic);
-                else if (body[0] == 0) {
-                    auto it = std::find(p.subs.begin(), p.subs.end(), topic);
-                    if (it != p.subs.end()) p.subs.erase(it);
+                if (body[0] == 1) {
+                    if (!p.subscribe(std::move(topic))) return false;
+                } else if (body[0] == 0) {
+                    p.unsubscribe(topic);
                 }
             }
         }

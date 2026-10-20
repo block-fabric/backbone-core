@@ -171,4 +171,37 @@ TEST(zmq_publisher_topic_prefix)
     close(b);
     pub.stop();
 }
+
+static void send_sub(int s, uint8_t op, const std::string& topic)
+{
+    Bytes m{0x00, uint8_t(topic.size() + 1), op};
+    for (char ch : topic) m.push_back(uint8_t(ch));
+    send(s, m.data(), m.size(), 0);
+}
+
+TEST(zmq_publisher_subscription_caps)
+{
+    zmq::Publisher pub;
+    std::string err;
+    REQUIRE(pub.bind("127.0.0.1", 0, err));
+    // duplicates do not count; an unsubscribed topic gets nothing
+    int a = zmq_sub_connect(pub.port(), "hashblock");
+    REQUIRE(a >= 0);
+    for (int i = 0; i < 2000; i++) send_sub(a, 1, "hashblock"); // 2000 duplicates: under the cap
+    send_sub(a, 0, "hashblock");
+    // a flood of distinct subscriptions exceeds 1024 entries: the peer is dropped
+    int f = zmq_sub_connect(pub.port(), "x");
+    REQUIRE(f >= 0);
+    for (int i = 0; i < 1100; i++) send_sub(f, 1, "t" + std::to_string(i));
+    std::this_thread::sleep_for(std::chrono::milliseconds(400));
+    CHECK_EQ(pub.subscribers(), size_t(1));
+    pub.publish({Bytes{'h', 'a', 's', 'h', 'b', 'l', 'o', 'c', 'k'}, Bytes(32, 1)});
+    Bytes ra = read_some(a, 300);
+    Bytes frame{0x01, 9, 'h', 'a', 's', 'h', 'b', 'l', 'o', 'c', 'k'};
+    CHECK(std::search(ra.begin(), ra.end(), frame.begin(), frame.end()) == ra.end());
+    Bytes rf = read_some(f, 100); // closed by the publisher: recv returns 0
+    close(a);
+    close(f);
+    pub.stop();
+}
 #endif

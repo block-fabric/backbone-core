@@ -5,8 +5,10 @@
 // `zeromq` crate publisher the BitNames/BitAssets nodes bind on --zmq-addr: SUB peers
 // (libzmq, pyzmq, zeromq-rs) connect, subscribe by topic prefix (legacy 0x01/0x00 message
 // or the 3.1 SUBSCRIBE/CANCEL commands), and receive multipart messages whose first frame
-// matches. Slow subscribers lose messages beyond a per-peer queue limit (ZMQ_SNDHWM
-// semantics) instead of stalling the node.
+// matches. Slow subscribers lose messages beyond a per-peer queue limit (8 MiB, ZMQ_SNDHWM
+// semantics) instead of stalling the node. Per-peer caps: inbound frames 64 KiB, 1024
+// subscriptions / 1 MiB of topic bytes (duplicates ignored); a peer over a cap is dropped.
+// Callers bind loopback by default (the chains' --zmq-addr default is 127.0.0.1).
 #pragma once
 
 #include <bt/bytes.h>
