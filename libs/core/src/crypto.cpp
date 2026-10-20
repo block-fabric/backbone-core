@@ -199,6 +199,52 @@ Hash32 sha256d(ByteSpan s)
     Hash32 a = sha256(s);
     return sha256(a.span());
 }
+Hash32 sha256_parts(std::initializer_list<ByteSpan> parts)
+{
+    Sha256Ctx c;
+    for (auto& p : parts) c.update(p.data(), p.size());
+    return c.final();
+}
+
+Hash32 hmac_sha256(ByteSpan key, std::initializer_list<ByteSpan> msg)
+{
+    uint8_t k[64] = {0};
+    if (key.size() > 64) {
+        auto h = sha256(key);
+        std::memcpy(k, h.data(), 32);
+    } else if (!key.empty()) {
+        std::memcpy(k, key.data(), key.size());
+    }
+    uint8_t ipad[64], opad[64];
+    for (int i = 0; i < 64; i++) {
+        ipad[i] = k[i] ^ 0x36;
+        opad[i] = k[i] ^ 0x5c;
+    }
+    Sha256Ctx in;
+    in.update(ipad, 64);
+    for (auto& p : msg) in.update(p.data(), p.size());
+    Hash32 inner = in.final();
+    return sha256_parts({ByteSpan(opad, 64), inner.span()});
+}
+
+Bytes hkdf_sha256(ByteSpan salt, ByteSpan ikm, ByteSpan info, size_t len)
+{
+    uint8_t zeros[32] = {0};
+    Hash32 prk = hmac_sha256(salt.empty() ? ByteSpan(zeros, 32) : salt, {ikm});
+    Bytes out;
+    Hash32 t;
+    bool first = true;
+    for (uint8_t i = 1; out.size() < len; i++) {
+        uint8_t c = i;
+        t = first ? hmac_sha256(prk.span(), {info, ByteSpan(&c, 1)}) : hmac_sha256(prk.span(), {t.span(), info, ByteSpan(&c, 1)});
+        first = false;
+        out.insert(out.end(), t.begin(), t.end());
+        if (i == 255) break;
+    }
+    out.resize(std::min(out.size(), len));
+    return out;
+}
+
 ByteArray<64> sha512(ByteSpan s) { return sha512_parts({s}); }
 ByteArray<64> sha512_parts(std::initializer_list<ByteSpan> parts)
 {

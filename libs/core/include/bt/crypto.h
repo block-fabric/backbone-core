@@ -34,6 +34,12 @@ Hash32 blake3(ByteSpan s);
 Hash32 sha256(ByteSpan s);
 /** Double SHA-256 (Bitcoin txid/blockhash, internal byte order). */
 Hash32 sha256d(ByteSpan s);
+/** SHA-256 over several concatenated parts. */
+Hash32 sha256_parts(std::initializer_list<ByteSpan> parts);
+/** HMAC-SHA256 (RFC 2104) over the concatenation of msg parts. */
+Hash32 hmac_sha256(ByteSpan key, std::initializer_list<ByteSpan> msg);
+/** HKDF-SHA256 (RFC 5869); an empty salt is HashLen zeros (Rust hkdf `new(None, ..)`). */
+Bytes hkdf_sha256(ByteSpan salt, ByteSpan ikm, ByteSpan info, size_t len);
 /** SHA-512. */
 ByteArray<64> sha512(ByteSpan s);
 /** SHA-512 over several concatenated parts. */
