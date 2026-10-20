@@ -2,6 +2,7 @@
 // Distributed under the MIT software license.
 #include <optional>
 
+#include <bt/fsperm.h>
 #include <bt/log.h>
 
 #include <chrono>
@@ -43,8 +44,7 @@ void set_file(const std::string& dir, Level l)
     g_dir = dir;
     g_file_level = l;
     if (!dir.empty()) {
-        std::error_code ec;
-        std::filesystem::create_directories(dir, ec);
+        fsperm::private_dir(dir, false); // logs may carry addresses and txids
     }
 }
 
@@ -84,6 +84,7 @@ void write(Level l, const char* fmt, ...)
         if (g_day != day || !g_file) {
             if (g_file) std::fclose(g_file);
             g_day = day;
+            fsperm::private_file(g_dir + "/" + day + ".log", false);
             g_file = std::fopen((g_dir + "/" + day + ".log").c_str(), "a");
         }
         if (g_file) {

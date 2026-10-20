@@ -1,5 +1,6 @@
 // Copyright (c) 2026 The Backbone developers
 // Distributed under the MIT software license.
+#include <bt/fsperm.h>
 #include <bt/kv.h>
 
 #include <mutex>
@@ -117,6 +118,10 @@ class SqliteStore : public Store {
 public:
     explicit SqliteStore(const std::string& path)
     {
+        // owner-only: SQLite creates -wal/-shm with the database file's mode
+        if (!fsperm::private_file(path)) throw std::runtime_error("cannot create " + path);
+        for (const char* sfx : {"-wal", "-shm"})
+            if (fsperm::mode_of(path + sfx) >= 0) fsperm::private_file(path + sfx);
         if (sqlite3_open(path.c_str(), &db) != SQLITE_OK) throw std::runtime_error("sqlite open " + path);
         exec("PRAGMA journal_mode=WAL");
         exec("PRAGMA synchronous=FULL");

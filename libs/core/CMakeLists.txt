@@ -15,7 +15,8 @@ add_library(bt_core STATIC
   src/bech32.cpp
   src/ed25519_bip32.cpp
   src/sidechain.cpp
-  src/zmq.cpp)
+  src/zmq.cpp
+  src/fsperm.cpp)
 target_include_directories(bt_core PUBLIC include)
 target_link_libraries(bt_core PUBLIC bt_blake3 bt_univalue PkgConfig::SODIUM PkgConfig::SQLITE)
 if(BT_STATIC)

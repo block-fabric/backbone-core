@@ -205,3 +205,40 @@ TEST(zmq_publisher_subscription_caps)
     pub.stop();
 }
 #endif
+
+#include <bt/fsperm.h>
+#include <bt/kv.h>
+
+#include <filesystem>
+#include <sys/stat.h>
+
+TEST(fsperm_store_and_dirs_owner_only)
+{
+#ifndef _WIN32
+    auto base = std::filesystem::temp_directory_path() / ("bt-perm-" + std::to_string(::getpid()));
+    std::filesystem::remove_all(base);
+    std::string dir = (base / "a" / "wallet").string();
+    mode_t old = umask(0); // worst case: a permissive umask
+    REQUIRE(fsperm::private_dir(dir));
+    CHECK_EQ(fsperm::mode_of(dir), 0700);
+    CHECK_EQ(fsperm::mode_of((base / "a").string()), 0700);
+    {
+        auto s = kv::open_sqlite(dir + "/w.sqlite");
+        kv::Txn t(*s);
+        t.put(1, Bytes{1}, Bytes{2});
+        t.commit();
+        CHECK_EQ(fsperm::mode_of(dir + "/w.sqlite"), 0600);
+        CHECK_EQ(fsperm::mode_of(dir + "/w.sqlite-wal"), 0600);
+        CHECK_EQ(fsperm::mode_of(dir + "/w.sqlite-shm"), 0600);
+    }
+    // existing loose files and directories are tightened
+    ::chmod((dir + "/w.sqlite").c_str(), 0644);
+    ::chmod(dir.c_str(), 0755);
+    REQUIRE(fsperm::private_dir(dir));
+    { auto s = kv::open_sqlite(dir + "/w.sqlite"); }
+    CHECK_EQ(fsperm::mode_of(dir), 0700);
+    CHECK_EQ(fsperm::mode_of(dir + "/w.sqlite"), 0600);
+    umask(old);
+    std::filesystem::remove_all(base);
+#endif
+}
