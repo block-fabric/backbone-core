@@ -123,7 +123,7 @@ TEST(utreexo_parent_hash_doc)
 TEST(utreexo_rustreexo_vectors)
 {
     UniValue v;
-    REQUIRE(v.read(bttest::read_file(bttest::data_dir() + "/rustreexo_test_cases.json")));
+    REQUIRE(v.read(bttest::read_file(std::string(BT_CORE_TEST_DATA_DIR) + "/rustreexo_test_cases.json")));
     // insertion tests
     for (auto& c : v["insertion_tests"].getValues()) {
         std::vector<utreexo::NodeHash> leaves;

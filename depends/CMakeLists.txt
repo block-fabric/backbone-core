@@ -1,7 +1,7 @@
-# Pinned third-party builds for backbone-thunder (static), driven through CMake so that
+# Pinned third-party builds for backbone-core (static), driven through CMake so that
 # ~/skydoge/tools/build.sh can run them like any other build:
 #   cmake -S depends -B depends/work/<host> [-DCMAKE_TOOLCHAIN_FILE=../cmake/mingw64.cmake]
-#   ~/skydoge/tools/build.sh ~/skydoge/backbone-thunder depends/work/<host>
+#   ~/skydoge/tools/build.sh <repo with this core> core/depends/work/<host>   (or depends/work/<host> standalone)
 # Output prefix: depends/built/<host>. Tarballs are verified against the published SHA-256.
 cmake_minimum_required(VERSION 3.22)
 project(bt_depends NONE)
