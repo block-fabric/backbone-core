@@ -27,6 +27,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -35,12 +36,16 @@ namespace bt::jsonrpc {
 struct RpcError : std::runtime_error {
     int code;
     std::optional<std::string> data; // the error object's "data" (jsonrpsee: the serde error of a bad param)
-    RpcError(int c, const std::string& m, std::optional<std::string> d = std::nullopt) : std::runtime_error(m), code(c), data(std::move(d)) {}
+    /** The parameter value (inside the handler's Params) the error is about: the server then adds serde_json's
+     *  " at line L column C" of that value in the request's params text, as jsonrpsee's data says. */
+    const UniValue* at = nullptr;
+    RpcError(int c, const std::string& m, std::optional<std::string> d = std::nullopt, const UniValue* where = nullptr)
+        : std::runtime_error(m), code(c), data(std::move(d)), at(where) {}
 };
 /** Application error, as their custom_err (code -1). */
 inline RpcError app_error(const std::string& m) { return RpcError(-1, m); }
 /** A parameter that does not parse: jsonrpsee's -32602 "Invalid params" with the cause as "data". */
-inline RpcError invalid_params(const std::string& m) { return RpcError(-32602, "Invalid params", m); }
+inline RpcError invalid_params(const std::string& m, const UniValue* at = nullptr) { return RpcError(-32602, "Invalid params", m, at); }
 
 /** Parameters normalised to positional order. Missing optional params are null. */
 struct Params {
@@ -79,7 +84,7 @@ private:
         Handler h;
     };
     std::map<std::string, Method> methods_;
-    UniValue call(const UniValue& req);
+    UniValue call(const UniValue& req, std::string_view raw_params = {});
     std::atomic<bool> running_{false};
     intptr_t fd_ = -1;
     std::thread thr_;

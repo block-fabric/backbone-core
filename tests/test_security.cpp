@@ -110,7 +110,9 @@ TEST(rpc_replies_as_jsonrpsee)
     jsonrpc::Server s;
     s.add("count", {}, 0, [](const jsonrpc::Params&) { return UniValue(0); });
     s.add("get", {"hash", "verbose"}, 1, [](const jsonrpc::Params& p) -> UniValue {
-        if (p[0].getValStr() == "zz") throw jsonrpc::invalid_params("invalid string length");
+        if (p[0].isObject()) throw jsonrpc::invalid_params("missing field `transaction`", &p[0]);
+        if (p[0].isArray()) throw jsonrpc::invalid_params("wrong address length 9 != 20", &p[0][0]);
+        if (p[0].getValStr() == "zz") throw jsonrpc::invalid_params("invalid string length", &p[0]);
         return UniValue(UniValue::VNULL);
     });
     CHECK_EQ(s.handle(R"({"jsonrpc":"2.0","id":1,"method":"count"})"), std::string(R"({"jsonrpc":"2.0","id":1,"result":0})"));
@@ -120,7 +122,16 @@ TEST(rpc_replies_as_jsonrpsee)
              std::string(R"({"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"Invalid params","data":"No more params"}})"));
     CHECK_EQ(s.handle(R"({"jsonrpc":"2.0","id":1,"method":"get","params":{}})"),
              std::string(R"({"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"Invalid params","data":"missing field `hash`"}})"));
+    // serde_json's position of the value in the params text (the texts thunder-rust gave).
     CHECK_EQ(s.handle(R"({"jsonrpc":"2.0","id":1,"method":"get","params":["zz"]})"),
-             std::string(R"({"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"Invalid params","data":"invalid string length"}})"));
+             std::string(R"({"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"Invalid params","data":"invalid string length at line 1 column 4"}})"));
+    CHECK_EQ(s.handle(R"({"jsonrpc":"2.0","id":1,"method":"get","params":[["notanaddress"]]})"),
+             std::string(R"({"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"Invalid params","data":"wrong address length 9 != 20 at line 1 column 15"}})"));
+    CHECK_EQ(s.handle(R"({"jsonrpc":"2.0","id":1,"method":"get","params":[{}]})"),
+             std::string(R"({"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"Invalid params","data":"missing field `transaction` at line 1 column 2"}})"));
+    CHECK_EQ(s.handle(R"({"params": [ "zz" ], "jsonrpc":"2.0","id":1,"method":"get"})"),
+             std::string(R"({"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"Invalid params","data":"invalid string length at line 1 column 5"}})"));
+    CHECK_EQ(s.handle(R"([{"jsonrpc":"2.0","id":1,"method":"count"},{"jsonrpc":"2.0","id":2,"method":"get","params":["zz"]}])"),
+             std::string(R"([{"jsonrpc":"2.0","id":1,"result":0},{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"Invalid params","data":"invalid string length at line 1 column 4"}}])"));
     CHECK_EQ(s.handle(R"({"jsonrpc":"2.0","id":1,"method":"nope"})"), std::string(R"({"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"Method not found"}})"));
 }

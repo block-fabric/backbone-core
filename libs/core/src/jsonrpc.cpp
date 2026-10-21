@@ -7,6 +7,7 @@
 
 #include <cstring>
 #include <sstream>
+#include <variant>
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -61,7 +62,137 @@ static UniValue response(const UniValue& id, const UniValue* result, const UniVa
     return r;
 }
 
-UniValue Server::call(const UniValue& req)
+namespace {
+// A scanner over the raw JSON text, to find where a value is (serde_json reports positions in the params text).
+struct RawJson {
+    std::string_view s;
+    size_t i = 0;
+    void ws() { while (i < s.size() && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r')) i++; }
+    bool string(std::string* out = nullptr)
+    {
+        if (i >= s.size() || s[i] != '"') return false;
+        i++;
+        while (i < s.size() && s[i] != '"') {
+            if (s[i] == '\\') {
+                if (++i >= s.size()) return false;
+                if (out && s[i] != 'u') out->push_back(s[i] == 'n' ? '\n' : s[i] == 't' ? '\t' : s[i] == 'r' ? '\r' : s[i] == 'b' ? '\b' : s[i] == 'f' ? '\f' : s[i]);
+                if (s[i] == 'u') { if (out) out->push_back('?'); i += 4; }
+                i++;
+                continue;
+            }
+            if (out) out->push_back(s[i]);
+            i++;
+        }
+        if (i >= s.size()) return false;
+        i++;
+        return true;
+    }
+    /** Skips one value; false if malformed. */
+    bool value()
+    {
+        ws();
+        if (i >= s.size()) return false;
+        char c = s[i];
+        if (c == '"') return string();
+        if (c == '{' || c == '[') {
+            char close = c == '{' ? '}' : ']';
+            i++;
+            ws();
+            if (i < s.size() && s[i] == close) { i++; return true; }
+            while (true) {
+                if (c == '{') {
+                    ws();
+                    if (!string()) return false;
+                    ws();
+                    if (i >= s.size() || s[i++] != ':') return false;
+                }
+                if (!value()) return false;
+                ws();
+                if (i >= s.size()) return false;
+                if (s[i] == ',') { i++; continue; }
+                if (s[i] == close) { i++; return true; }
+                return false;
+            }
+        }
+        while (i < s.size() && s[i] != ',' && s[i] != ']' && s[i] != '}' && s[i] != ' ' && s[i] != '\t' && s[i] != '\n' && s[i] != '\r') i++;
+        return true;
+    }
+    /** Moves to the start of member `key` of the object / element `idx` of the array at i. */
+    bool enter(const std::variant<size_t, std::string>& step)
+    {
+        ws();
+        if (i >= s.size()) return false;
+        char c = s[i];
+        if ((c == '[') != std::holds_alternative<size_t>(step) || (c != '[' && c != '{')) return false;
+        i++;
+        size_t n = 0;
+        while (true) {
+            ws();
+            if (i < s.size() && (s[i] == ']' || s[i] == '}')) return false;
+            if (c == '{') {
+                std::string k;
+                if (!string(&k)) return false;
+                ws();
+                if (i >= s.size() || s[i++] != ':') return false;
+                ws();
+                if (k == std::get<std::string>(step)) return true;
+            } else if (n == std::get<size_t>(step)) {
+                ws();
+                return true;
+            }
+            if (!value()) return false;
+            ws();
+            if (i >= s.size() || s[i] != ',') return false;
+            i++;
+            n++;
+        }
+    }
+};
+
+using Path = std::vector<std::variant<size_t, std::string>>;
+
+bool find_path(const UniValue& v, const UniValue* target, Path& path)
+{
+    if (&v == target) return true;
+    if (v.isArray() || v.isObject()) {
+        const auto& vals = v.getValues();
+        for (size_t k = 0; k < vals.size(); k++) {
+            if (v.isArray()) path.emplace_back(k); else path.emplace_back(v.getKeys()[k]);
+            if (find_path(vals[k], target, path)) return true;
+            path.pop_back();
+        }
+    }
+    return false;
+}
+
+/** serde_json's " at line L column C" for the value at `path` in the params text: the position of its last character. */
+std::string position_suffix(std::string_view raw, const Path& path)
+{
+    RawJson r{raw};
+    for (auto& step : path)
+        if (!r.enter(step)) return "";
+    r.ws();
+    size_t start = r.i;
+    if (!r.value() || r.i == start) return "";
+    size_t last = r.i - 1;
+    size_t line = 1, line_start = 0;
+    for (size_t k = 0; k < last; k++)
+        if (raw[k] == '\n') { line++; line_start = k + 1; }
+    return " at line " + std::to_string(line) + " column " + std::to_string(last - line_start);
+}
+
+/** The raw text of the "params" member of the request object starting at `obj` (empty if none). */
+std::string_view raw_params_of(std::string_view body, size_t obj)
+{
+    RawJson r{body, obj};
+    if (!r.enter(std::string("params"))) return {};
+    size_t start = r.i;
+    if (!r.value()) return {};
+    return body.substr(start, r.i - start);
+}
+} // namespace
+
+UniValue Server::call(const UniValue& req, std::string_view raw_params)
 {
     UniValue id = req["id"];
     if (!req.isObject() || !req["method"].isStr()) {
@@ -98,7 +229,17 @@ UniValue Server::call(const UniValue& req)
         UniValue r = m.h(p);
         return response(id, &r, nullptr);
     } catch (const RpcError& ex) {
-        auto e = error_obj(ex.code, ex.what(), ex.data);
+        auto data = ex.data;
+        if (data && ex.at && !raw_params.empty()) {
+            Path path;
+            bool found = false;
+            for (size_t k = 0; k < p.v.size() && !found; k++) {
+                if (params.isObject()) path = {m.names[k]}; else path = {k};
+                found = find_path(p.v[k], ex.at, path);
+            }
+            if (found) *data += position_suffix(raw_params, path);
+        }
+        auto e = error_obj(ex.code, ex.what(), data);
         return response(id, nullptr, &e);
     } catch (const std::exception& ex) {
         auto e = error_obj(-1, ex.what());
@@ -115,15 +256,21 @@ std::string Server::handle(const std::string& body)
     }
     if (req.isArray()) {
         UniValue out(UniValue::VARR);
+        size_t n = 0;
         for (auto& r : req.getValues()) {
             bool notification = r.isObject() && !r.exists("id");
-            UniValue resp = call(r);
+            std::string_view raw;
+            RawJson at{body};
+            if (at.enter(n++)) raw = raw_params_of(body, at.i);
+            UniValue resp = call(r, raw);
             if (!notification) out.push_back(resp);
         }
         return out.empty() ? "" : out.write();
     }
     bool notification = req.isObject() && !req.exists("id");
-    UniValue resp = call(req);
+    RawJson top{body};
+    top.ws();
+    UniValue resp = call(req, raw_params_of(body, top.i));
     return notification ? "" : resp.write();
 }
 
