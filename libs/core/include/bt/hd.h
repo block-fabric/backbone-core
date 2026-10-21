@@ -28,6 +28,9 @@ ByteArray<64> pbkdf2_hmac_sha512(ByteSpan password, ByteSpan salt, uint32_t roun
 std::string generate_mnemonic(size_t words = 12);
 /** Validate words + checksum (Mnemonic::from_phrase); returns the normalised phrase. */
 std::optional<std::string> parse_mnemonic(const std::string& phrase);
+/** Why tiny-bip39 2.0's Mnemonic::from_phrase refuses `phrase`, in its words, in its order (an unknown word
+ *  first, by index, then the word count, then the checksum); "" if it is valid. */
+std::string mnemonic_error(const std::string& phrase);
 /** Seed::new(mnemonic, passphrase) */
 ByteArray<64> mnemonic_to_seed(const std::string& normalised_phrase, const std::string& passphrase = "");
 

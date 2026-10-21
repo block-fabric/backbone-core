@@ -101,6 +101,21 @@ std::optional<std::string> parse_mnemonic(const std::string& phrase)
     return r;
 }
 
+std::string mnemonic_error(const std::string& phrase)
+{
+    std::istringstream in(phrase);
+    std::vector<std::string> ws;
+    std::string w;
+    while (in >> w) ws.push_back(w);
+    // from_phrase joins split_whitespace() with " ", then phrase_to_entropy splits on ' ': no words is one empty word.
+    if (ws.empty()) return "invalid word in phrase with index 0";
+    for (size_t i = 0; i < ws.size(); i++)
+        if (word_index(ws[i]) < 0) return "invalid word in phrase with index " + std::to_string(i);
+    if (ws.size() != 12 && ws.size() != 15 && ws.size() != 18 && ws.size() != 21 && ws.size() != 24)
+        return "invalid number of words in phrase: " + std::to_string(ws.size());
+    return parse_mnemonic(phrase) ? std::string{} : std::string{"invalid checksum"};
+}
+
 ByteArray<64> mnemonic_to_seed(const std::string& phrase, const std::string& passphrase)
 {
     std::string salt = "mnemonic" + passphrase;

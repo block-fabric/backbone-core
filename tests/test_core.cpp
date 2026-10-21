@@ -259,3 +259,18 @@ TEST(kv_sqlite_empty_keys_and_values)
     std::filesystem::remove(path + "-wal");
     std::filesystem::remove(path + "-shm");
 }
+
+#include <bt/hd.h>
+// tiny-bip39 2.0's errors, as thunder-rust's set_seed_from_mnemonic answered on the lab server (2026-10-21).
+TEST(mnemonic_errors_as_tiny_bip39)
+{
+    const std::string ok = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+    CHECK_EQ(bt::hd::mnemonic_error(ok), std::string());
+    CHECK_EQ(bt::hd::mnemonic_error("  " + ok + "\n"), std::string());
+    CHECK_EQ(bt::hd::mnemonic_error("not a mnemonic"), std::string("invalid word in phrase with index 0"));
+    CHECK_EQ(bt::hd::mnemonic_error(""), std::string("invalid word in phrase with index 0"));
+    CHECK_EQ(bt::hd::mnemonic_error("abandon zzz"), std::string("invalid word in phrase with index 1"));
+    CHECK_EQ(bt::hd::mnemonic_error("abandon abandon about"), std::string("invalid number of words in phrase: 3"));
+    CHECK_EQ(bt::hd::mnemonic_error("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon"),
+             std::string("invalid checksum"));
+}
