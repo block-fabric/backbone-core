@@ -42,10 +42,14 @@ ExternalProject_Add(openssl
   BUILD_IN_SOURCE 1)
 
 # ngtcp2 (MIT): QUIC transport, with its ngtcp2_crypto_ossl backend.
+# Its configure finds OpenSSL through pkg-config too: only the .pc files of this prefix, never the host's (a
+# distribution's libcrypto.pc names its own private libraries, -l:libjitterentropy.a -lzstd on Ubuntu 26.04,
+# which then end up on the link line of the static OpenSSL built here).
 ExternalProject_Add(ngtcp2
   DEPENDS openssl
   URL ${SRC}/ngtcp2-${NGTCP2_VERSION}.tar.xz
   URL_HASH SHA256=${NGTCP2_SHA256}
+  CMAKE_COMMAND ${CMAKE_COMMAND} -E env PKG_CONFIG_LIBDIR=${PREFIX}/lib/pkgconfig PKG_CONFIG_PATH= PKG_CONFIG_SYSROOT_DIR= ${CMAKE_COMMAND}
   CMAKE_ARGS ${CROSS_ARGS} -DCMAKE_INSTALL_PREFIX=${PREFIX} -DCMAKE_BUILD_TYPE=Release
              -DENABLE_LIB_ONLY=ON -DENABLE_SHARED_LIB=OFF -DENABLE_STATIC_LIB=ON
              -DENABLE_OPENSSL=ON -DOPENSSL_ROOT_DIR=${PREFIX} -DOPENSSL_USE_STATIC_LIBS=ON
