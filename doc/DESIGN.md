@@ -43,6 +43,12 @@ encodings, merkle variant, Utreexo on/off, state machine and RPC (study §1: the
 | `kv.h` | ordered KV with transactions; SQLite (WAL) or memory; memcmp key order like LMDB | |
 | `hd.h` | BIP-39 + "bip32ish" ristretto255 derivation (both thunder 0.18.0 and ≥0.18.1 variants) | BIP-39 vectors |
 | `jsonrpc.h`, `log.h`, `parse.h` | jsonrpsee-shaped JSON-RPC over HTTP, daily-rolling logs, non-throwing parsers | |
+| `sidechain/archive.h`, `sidechain/p2p.h`, `sidechain/mainchain_store.h` | the archive (side headers/bodies, mainchain header infos, BMM results, `better_tip` fork choice) and the P2P message set common to the thunder-rust family, templated on a chain traits class (used by BitNames; Thunder still has its own copy) | thunder-rust v0.18.2 / plain-bitnames fork v0.18.2 lib/archive, lib/net/peer/message.rs |
+| `ed25519_bip32.h` | BIP32-Ed25519 V2 derivation (BitNames/BitAssets wallets) | ed25519-bip32 0.4.1 vectors |
+| `bech32.h` | Bech32/Bech32m for 8-bit payloads (BitNames key strings) | BIP-350 vectors |
+| `crypto.h` HMAC-SHA256/HKDF, `ecies.h` (bt_net) | libes 0.9.1 ECIES-MAC over x25519 + AES-256-GCM | RFC 4231 / 5869 vectors |
+| `zmq.h` | ZMTP 3.0/3.1 PUB socket (block-hash feed), per-peer caps | raw ZMTP subscriber test |
+| `fsperm.h` | owner-only directories (0700) and files (0600) for stores, wallets and logs | mode tests |
 
 ## Decision: lean standalone node, not our Bitcoin Core base
 
