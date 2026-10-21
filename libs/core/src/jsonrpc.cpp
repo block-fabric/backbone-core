@@ -63,6 +63,7 @@ static UniValue response(const UniValue& id, const UniValue* result, const UniVa
 }
 
 namespace {
+constexpr size_t MAX_BATCH = 1000;
 // A scanner over the raw JSON text, to find where a value is (serde_json reports positions in the params text).
 struct RawJson {
     std::string_view s;
@@ -192,7 +193,7 @@ std::string_view raw_params_of(std::string_view body, size_t obj)
 }
 } // namespace
 
-UniValue Server::call(const UniValue& req, std::string_view raw_params)
+UniValue Server::call(const UniValue& req, const std::function<std::string_view()>& raw_params_of_req)
 {
     UniValue id = req["id"];
     if (!req.isObject() || !req["method"].isStr()) {
@@ -230,7 +231,8 @@ UniValue Server::call(const UniValue& req, std::string_view raw_params)
         return response(id, &r, nullptr);
     } catch (const RpcError& ex) {
         auto data = ex.data;
-        if (data && ex.at && !raw_params.empty()) {
+        const std::string_view raw_params = data && ex.at && raw_params_of_req ? raw_params_of_req() : std::string_view{};
+        if (!raw_params.empty()) {
             Path path;
             bool found = false;
             for (size_t k = 0; k < p.v.size() && !found; k++) {
@@ -255,22 +257,50 @@ std::string Server::handle(const std::string& body)
         return response(UniValue(), nullptr, &e).write();
     }
     if (req.isArray()) {
+        if (req.size() > MAX_BATCH) {
+            // jsonrpsee's BATCHES_TOO_LARGE (theirs is unlimited by default; a bound of ours).
+            auto e = error_obj(-32010, "The batch request was too large", "Exceeded max limit of " + std::to_string(MAX_BATCH));
+            return response(UniValue(), nullptr, &e).write();
+        }
+        // Where each element starts in the raw text: one pass over the body, done only if a parameter error
+        // needs a position (never a rescan per element).
+        std::vector<size_t> starts;
+        bool scanned = false;
+        const auto element_params = [&](size_t k) -> std::string_view {
+            if (!scanned) {
+                scanned = true;
+                RawJson r{body};
+                r.ws();
+                if (r.i < body.size() && body[r.i] == '[') {
+                    r.i++;
+                    while (true) {
+                        r.ws();
+                        if (r.i >= body.size() || body[r.i] == ']') break;
+                        starts.push_back(r.i);
+                        if (!r.value()) break;
+                        r.ws();
+                        if (r.i < body.size() && body[r.i] == ',') r.i++; else break;
+                    }
+                }
+            }
+            return k < starts.size() ? raw_params_of(body, starts[k]) : std::string_view{};
+        };
         UniValue out(UniValue::VARR);
         size_t n = 0;
         for (auto& r : req.getValues()) {
             bool notification = r.isObject() && !r.exists("id");
-            std::string_view raw;
-            RawJson at{body};
-            if (at.enter(n++)) raw = raw_params_of(body, at.i);
-            UniValue resp = call(r, raw);
+            const size_t k = n++;
+            UniValue resp = call(r, [&] { return element_params(k); });
             if (!notification) out.push_back(resp);
         }
         return out.empty() ? "" : out.write();
     }
     bool notification = req.isObject() && !req.exists("id");
-    RawJson top{body};
-    top.ws();
-    UniValue resp = call(req, raw_params_of(body, top.i));
+    UniValue resp = call(req, [&] {
+        RawJson top{body};
+        top.ws();
+        return raw_params_of(body, top.i);
+    });
     return notification ? "" : resp.write();
 }
 

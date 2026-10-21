@@ -1,4 +1,5 @@
 // Hardening tests: RPC HTTP policy, non-throwing parsers.
+#include <chrono>
 #include "test.h"
 
 #include <bt/jsonrpc.h>
@@ -134,4 +135,28 @@ TEST(rpc_replies_as_jsonrpsee)
     CHECK_EQ(s.handle(R"([{"jsonrpc":"2.0","id":1,"method":"count"},{"jsonrpc":"2.0","id":2,"method":"get","params":["zz"]}])"),
              std::string(R"([{"jsonrpc":"2.0","id":1,"result":0},{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"Invalid params","data":"invalid string length at line 1 column 4"}}])"));
     CHECK_EQ(s.handle(R"({"jsonrpc":"2.0","id":1,"method":"nope"})"), std::string(R"({"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"Method not found"}})"));
+}
+
+// A large batch costs one pass over the body, however many of its elements fail (no rescan per element), and a
+// batch over 1000 requests is refused as jsonrpsee's BATCHES_TOO_LARGE.
+TEST(rpc_large_batch_is_linear_and_bounded)
+{
+    jsonrpc::Server s;
+    s.add("get", {"hash"}, 1, [](const jsonrpc::Params& p) -> UniValue { throw jsonrpc::invalid_params("invalid string length", &p[0]); });
+    std::string pad(30000, ' ');
+    std::string body = "[";
+    for (int i = 0; i < 1000; i++) body += std::string(i ? "," : "") + R"({"jsonrpc":"2.0","id":1,"method":"get","params":[)" + pad + R"("zz"]})";
+    body += "]";
+    auto t0 = std::chrono::steady_clock::now();
+    std::string out = s.handle(body);
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+    CHECK(ms < 5000);
+    CHECK(out.find("invalid string length at line 1 column 30004") != std::string::npos);
+    UniValue r;
+    REQUIRE(r.read(out));
+    CHECK_EQ(r.size(), size_t(1000));
+    body = "[";
+    for (int i = 0; i < 1001; i++) body += std::string(i ? "," : "") + R"({"jsonrpc":"2.0","id":1,"method":"get","params":["zz"]})";
+    body += "]";
+    CHECK_EQ(s.handle(body), std::string(R"({"jsonrpc":"2.0","id":null,"error":{"code":-32010,"message":"The batch request was too large","data":"Exceeded max limit of 1000"}})"));
 }

@@ -84,7 +84,8 @@ private:
         Handler h;
     };
     std::map<std::string, Method> methods_;
-    UniValue call(const UniValue& req, std::string_view raw_params = {});
+    /** raw_params: the request's raw params text, asked for only when a parameter error needs its position. */
+    UniValue call(const UniValue& req, const std::function<std::string_view()>& raw_params = {});
     std::atomic<bool> running_{false};
     intptr_t fd_ = -1;
     std::thread thr_;
