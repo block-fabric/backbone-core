@@ -101,3 +101,26 @@ TEST(parse_ports_and_hostports)
     CHECK(!parse_u64("18446744073709551616").has_value());
     CHECK(parse_u64("18446744073709551615") == std::optional<uint64_t>(UINT64_MAX));
 }
+
+// The replies byte for byte as jsonrpsee writes them (thunder-rust 0.18.2 / plain-bitnames 0.18.2 on the lab
+// server, 2026-10-21): "jsonrpc", "id", then "result" or "error"; a bad or missing parameter is -32602
+// "Invalid params" with the cause as "data"; parameters after those a method takes are ignored.
+TEST(rpc_replies_as_jsonrpsee)
+{
+    jsonrpc::Server s;
+    s.add("count", {}, 0, [](const jsonrpc::Params&) { return UniValue(0); });
+    s.add("get", {"hash", "verbose"}, 1, [](const jsonrpc::Params& p) -> UniValue {
+        if (p[0].getValStr() == "zz") throw jsonrpc::invalid_params("invalid string length");
+        return UniValue(UniValue::VNULL);
+    });
+    CHECK_EQ(s.handle(R"({"jsonrpc":"2.0","id":1,"method":"count"})"), std::string(R"({"jsonrpc":"2.0","id":1,"result":0})"));
+    CHECK_EQ(s.handle(R"({"jsonrpc":"2.0","id":1,"method":"count","params":[1]})"), std::string(R"({"jsonrpc":"2.0","id":1,"result":0})"));
+    CHECK_EQ(s.handle(R"({"jsonrpc":"2.0","id":1,"method":"get","params":["11",true,5]})"), std::string(R"({"jsonrpc":"2.0","id":1,"result":null})"));
+    CHECK_EQ(s.handle(R"({"jsonrpc":"2.0","id":1,"method":"get","params":[]})"),
+             std::string(R"({"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"Invalid params","data":"No more params"}})"));
+    CHECK_EQ(s.handle(R"({"jsonrpc":"2.0","id":1,"method":"get","params":{}})"),
+             std::string(R"({"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"Invalid params","data":"missing field `hash`"}})"));
+    CHECK_EQ(s.handle(R"({"jsonrpc":"2.0","id":1,"method":"get","params":["zz"]})"),
+             std::string(R"({"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"Invalid params","data":"invalid string length"}})"));
+    CHECK_EQ(s.handle(R"({"jsonrpc":"2.0","id":1,"method":"nope"})"), std::string(R"({"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"Method not found"}})"));
+}

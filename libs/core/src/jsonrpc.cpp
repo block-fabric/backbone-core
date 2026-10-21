@@ -41,21 +41,23 @@ std::vector<std::string> Server::methods() const
     return r;
 }
 
-static UniValue error_obj(int code, const std::string& msg)
+static UniValue error_obj(int code, const std::string& msg, const std::optional<std::string>& data = std::nullopt)
 {
     UniValue e(UniValue::VOBJ);
     e.pushKV("code", code);
     e.pushKV("message", msg);
+    if (data) e.pushKV("data", *data);
     return e;
 }
 
+// jsonrpsee writes "jsonrpc", "id", then "result" or "error" (their Response's field order), byte for byte.
 static UniValue response(const UniValue& id, const UniValue* result, const UniValue* error)
 {
     UniValue r(UniValue::VOBJ);
     r.pushKV("jsonrpc", "2.0");
+    r.pushKV("id", id);
     if (result) r.pushKV("result", *result);
     if (error) r.pushKV("error", *error);
-    r.pushKV("id", id);
     return r;
 }
 
@@ -75,29 +77,28 @@ UniValue Server::call(const UniValue& req)
     const UniValue& params = req["params"];
     auto& m = it->second;
     if (params.isArray()) {
-        if (params.size() > m.names.size()) {
-            auto e = error_obj(-32602, "Invalid params");
-            return response(id, nullptr, &e);
-        }
+        // jsonrpsee reads the parameters it needs from the sequence and ignores any after them (a
+        // method without parameters does not look at them at all).
         p.v = params.getValues();
+        if (p.v.size() > m.names.size()) p.v.resize(m.names.size());
     } else if (params.isObject()) {
         for (auto& n : m.names) p.v.push_back(params[n]);
-    } else if (!params.isNull()) {
+    } else if (!params.isNull() && !m.names.empty()) {
         auto e = error_obj(-32602, "Invalid params");
         return response(id, nullptr, &e);
     }
-    size_t present = 0;
-    for (size_t i = 0; i < m.required; i++)
-        if (i < p.v.size() && !p.v[i].isNull()) present++;
-    if (present < m.required) {
-        auto e = error_obj(-32602, "Invalid params");
+    for (size_t i = 0; i < m.required; i++) {
+        if (i < p.v.size() && !p.v[i].isNull()) continue;
+        // A required parameter missing: the sequence ran out ("No more params"), or serde's missing
+        // field of a named call.
+        auto e = error_obj(-32602, "Invalid params", params.isObject() ? "missing field `" + m.names[i] + "`" : std::string{"No more params"});
         return response(id, nullptr, &e);
     }
     try {
         UniValue r = m.h(p);
         return response(id, &r, nullptr);
     } catch (const RpcError& ex) {
-        auto e = error_obj(ex.code, ex.what());
+        auto e = error_obj(ex.code, ex.what(), ex.data);
         return response(id, nullptr, &e);
     } catch (const std::exception& ex) {
         auto e = error_obj(-1, ex.what());
