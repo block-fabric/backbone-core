@@ -130,7 +130,8 @@ private:
     std::unordered_map<NodeHash, std::weak_ptr<Node>, NodeHashHasher> map;
 
     std::optional<std::string> del(const std::vector<NodeHash>& targets);
-    void del_single(const NodePtr& node);
+    /** false where rustreexo panics (the block is rejected). */
+    bool del_single(const NodePtr& node);
     void add_single(const NodeHash& value);
     std::optional<uint64_t> get_pos(const std::weak_ptr<Node>& node) const;
     struct Grab {

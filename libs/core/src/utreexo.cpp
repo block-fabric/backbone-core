@@ -401,27 +401,32 @@ std::optional<std::string> MemForest::del(const std::vector<NodeHash>& targets)
         map.erase(it);
         NodePtr n = w.lock();
         if (!n) return std::string("dangling node"); // unwrap panic in Rust
-        del_single(n);
+        if (!del_single(n)) return std::string("panic: RefCell already borrowed");
     }
     return std::nullopt;
 }
 
-void MemForest::del_single(const NodePtr& node)
+bool MemForest::del_single(const NodePtr& node)
 {
     if (!node->has_parent) {
         // Deleting a root
         auto it = std::find_if(roots.begin(), roots.end(), [&](const NodePtr& x) { return x->data == node->data; });
-        if (it == roots.end()) return; // unwrap panic in Rust (unreachable)
+        if (it == roots.end()) return false; // unwrap panic in Rust (unreachable)
         auto empty = std::make_shared<Node>();
         empty->leaf = false;
         empty->data = NodeHash::empty();
         *it = empty;
-        return;
+        return true;
     }
     NodePtr parent = node->parent.lock();
-    if (!parent) return; // `node.upgrade()?` -> None
-    if (!parent->left) return; // `me.as_deref()?`
+    if (!parent) return true; // `node.upgrade()?` -> None
+    if (!parent->left) return true; // `me.as_deref()?`
     NodePtr sibling = (parent->left->data == node->data) ? parent->right : parent->left;
+    // A right child whose left sibling has the same hash is taken for the left child, so its
+    // "sibling" is itself: rustreexo then replaces node.parent while it holds a borrow of it
+    // (`let parent = node.parent.borrow()`), and panics ("RefCell already borrowed"). Reached
+    // by spending one of two equal leaves side by side (a zero-input tx twice in a block).
+    if (sibling == node) return false;
     if (sibling) {
         bool gp_some = parent->has_parent;
         std::weak_ptr<Node> gpw = parent->parent;
@@ -434,9 +439,11 @@ void MemForest::del_single(const NodePtr& node)
             sibling->recompute_hashes();
         } else {
             auto it = std::find_if(roots.begin(), roots.end(), [&](const NodePtr& x) { return x->data == parent->data; });
-            if (it != roots.end()) *it = sibling;
+            if (it == roots.end()) return false; // unwrap panic in Rust
+            *it = sibling;
         }
     }
+    return true;
 }
 
 void MemForest::add_single(const NodeHash& value)

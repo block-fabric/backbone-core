@@ -179,6 +179,27 @@ TEST(utreexo_rustreexo_vectors)
     }
 }
 
+TEST(utreexo_delete_right_twin_is_rustreexo_panic)
+{
+    // Lab differential oracle (rustreexo 6da503b, 2026-10-21): with two equal leaves side by
+    // side, deleting that hash takes the right one, whose "sibling" is itself; rustreexo panics
+    // ("RefCell already borrowed", mem_forest.rs:546). Ours: an error, so the block is rejected.
+    auto a = hash_from_u8(1), b = hash_from_u8(2), c = hash_from_u8(3);
+    utreexo::MemForest f;
+    CHECK(!f.modify({a, a}, {}));
+    CHECK(f.modify({b, a, c}, {a}).has_value());
+    // as reloaded from the store (the map rebuilt in pre-order, last wins): the same
+    utreexo::MemForest g;
+    CHECK(!g.modify({b, c, a, a}, {}));
+    auto g2 = utreexo::MemForest::deserialize(g.serialize());
+    REQUIRE(g2.has_value());
+    CHECK(g2->modify({}, {a}).has_value());
+    // equal leaves that are not siblings delete as before
+    utreexo::MemForest h;
+    CHECK(!h.modify({a, b, a, c}, {}));
+    CHECK(!h.modify({}, {a}));
+}
+
 TEST(utreexo_prove_verify_roundtrip)
 {
     std::vector<utreexo::NodeHash> leaves;
