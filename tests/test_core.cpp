@@ -98,6 +98,17 @@ TEST(frost_rfc9591_vector)
     CHECK(!frost::valid_element(zero));
     auto inv = hex_to_array<32>("abcdef7de8baf62d57fe0452581b147b152f776e830c346d1119cee0bc954a59");
     CHECK(!frost::valid_element(*inv));
+    // the top bit set (s >= 2^255): not canonical for curve25519-dalek, so not for
+    // frost-ristretto255; libsodium < 1.0.19 decodes it and the malleated signature verified
+    // (lab differential oracle, 2026-10-21)
+    frost::Signature mal = s;
+    mal.R[31] |= 0x80;
+    CHECK(!frost::valid_element(mal.R));
+    CHECK(!frost::verify(*vk, mal, str("test")));
+    auto vk_mal = *vk;
+    vk_mal[31] |= 0x80;
+    CHECK(!frost::valid_element(vk_mal));
+    CHECK(!frost::verify(vk_mal, s, str("test")));
 }
 
 static utreexo::NodeHash hash_from_u8(uint8_t v)

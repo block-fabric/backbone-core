@@ -23,6 +23,11 @@ bool valid_element(const Point& p)
 {
     init();
     if (p.is_zero()) return false; // the identity's only canonical encoding is all-zero
+    // A canonical encoding is a field element below 2^255 - 19, so its top bit is clear
+    // (curve25519-dalek's decompress rejects it). libsodium before 1.0.19 (Ubuntu's 1.0.18,
+    // which Linux builds link) ignores that bit and accepts R or a key with it set: a
+    // malleated signature, valid here and an undecodable one for the Rust nodes.
+    if (p[31] & 0x80) return false;
     return crypto_core_ristretto255_is_valid_point(p.data()) == 1;
 }
 
