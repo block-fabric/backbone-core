@@ -167,7 +167,7 @@ function(bt_desktop_app target)
     VERBATIM)
   add_custom_target(${target}-pack
     COMMAND ${CMAKE_COMMAND} -DKIT=${kit} -DKIT_REPO=${BT_KIT_DIR} -DDROPIN=${BT_APP_UI_DIR} -DCHAIN=${A_CHAIN} -DUI=${ui} -DOUT=${CMAKE_BINARY_DIR}/pack/${A_STEM}
-            -DNPM=${NPM_EXECUTABLE} -DMANIFEST=${A_MANIFEST} -DCOMMIT=${commit} -DPACK=ON -P ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/assemble_ui.cmake
+            -DNPM=${NPM_EXECUTABLE} -DMANIFEST=${A_MANIFEST} -DCOMMIT=${commit} -DPACK=ON -DREPO=${CMAKE_SOURCE_DIR} -P ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/assemble_ui.cmake
     COMMENT "The pack of ${A_NAME}'s pages for the unified wallet: ${CMAKE_BINARY_DIR}/pack/${A_STEM}"
     VERBATIM)
 

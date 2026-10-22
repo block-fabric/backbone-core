@@ -2,7 +2,9 @@
 # core/app/ui in src/chain/dropin, the chain's own layer over src/chain; then npm: the app's interface (OUT) or, with
 # PACK=ON, a pack of the pages for the unified wallet (OUT/pack.json gets the manifest's methods).
 #   cmake -DKIT=<kit> -DKIT_REPO=<template repo> -DDROPIN=<core/app/ui> -DCHAIN=<app/chain> -DUI=<work> -DOUT=<dir>
-#         -DNPM=<npm> -DMANIFEST=<manifest.json> -DCOMMIT=<kit commit> [-DPACK=ON] -P assemble_ui.cmake
+#         -DNPM=<npm> -DMANIFEST=<manifest.json> -DCOMMIT=<kit commit> [-DPACK=ON -DREPO=<the chain's repo>] -P assemble_ui.cmake
+# A pack's commit (pack.json "commit", what the unified wallet pins) is the chain repo's HEAD, "-dirty" after it when
+# tracked files differ from it; "kit" is the template's commit its pages were built on.
 foreach(var KIT DROPIN CHAIN UI OUT NPM MANIFEST COMMIT)
   if(NOT ${var})
     message(FATAL_ERROR "assemble_ui.cmake needs ${var}")
@@ -41,7 +43,16 @@ if(NOT EXISTS "${stamp}")
 endif()
 
 if(PACK)
-  execute_process(COMMAND "${NPM}" run --silent pack -- --outDir "${OUT}" --commit "${COMMIT}" WORKING_DIRECTORY "${app}" RESULT_VARIABLE result)
+  set(chain_commit "")
+  if(REPO)
+    find_program(GIT git REQUIRED)
+    execute_process(COMMAND "${GIT}" -C "${REPO}" rev-parse HEAD OUTPUT_VARIABLE chain_commit OUTPUT_STRIP_TRAILING_WHITESPACE)
+    execute_process(COMMAND "${GIT}" -C "${REPO}" status --porcelain --untracked-files=no OUTPUT_VARIABLE dirty)
+    if(dirty)
+      string(APPEND chain_commit "-dirty")
+    endif()
+  endif()
+  execute_process(COMMAND "${NPM}" run --silent pack -- --outDir "${OUT}" --commit "${chain_commit}" WORKING_DIRECTORY "${app}" RESULT_VARIABLE result)
   if(NOT result EQUAL 0)
     message(FATAL_ERROR "The pack failed (${result})")
   endif()
