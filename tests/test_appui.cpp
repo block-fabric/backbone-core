@@ -465,6 +465,17 @@ TEST(appui_bip85_vectors_and_dropin_phrases)
     CHECK(hd::parse_mnemonic(thunder).has_value());
     CHECK(thunder != dropin_phrase(seed.span(), "bitnames", "betanet"));
     CHECK_EQ(thunder, bip85_phrase(seed.span(), dropin_phrase_index("thunder", "betanet")));
+    // Fixed vectors (doc/app.md), computed by an independent implementation (hardened BIP-32 in Python, checked
+    // against BIP-85's own vector first): the index, the phrase and its seed's fingerprint.
+    CHECK_EQ(dropin_phrase_index("thunder", "betanet"), uint32_t{1875996695});
+    CHECK_EQ(dropin_phrase_index("bitnames", "regtest"), uint32_t{756939817});
+    CHECK_EQ(thunder, std::string{"skull fragile group drastic stumble bridge pledge end flip girl minor animal"});
+    CHECK_EQ(dropin_phrase(seed.span(), "thunder", "regtest"), std::string{"bless weekend until panic travel tank escape you caught chunk project village"});
+    CHECK_EQ(dropin_phrase(seed.span(), "bitnames", "betanet"), std::string{"laptop kitchen pilot rookie crawl settle awful scissors cupboard lumber virtual slab"});
+    const std::string bitnames_regtest{dropin_phrase(seed.span(), "bitnames", "regtest")};
+    CHECK_EQ(bitnames_regtest, std::string{"toast rebuild airport excite load category oil decrease riot ripple simple begin"});
+    CHECK_EQ(seed_fingerprint(hd::mnemonic_to_seed(*hd::parse_mnemonic(thunder)).span()), std::string{"1de17b5ba7143bfe"});
+    CHECK_EQ(seed_fingerprint(hd::mnemonic_to_seed(*hd::parse_mnemonic(bitnames_regtest)).span()), std::string{"28f49c28f4cfb73e"});
     // The fingerprint: 16 hex, the same for the same seed, another for another.
     CHECK_EQ(seed_fingerprint(seed.span()).size(), size_t{16});
     CHECK(seed_fingerprint(seed.span()) != seed_fingerprint(hd::mnemonic_to_seed(*hd::parse_mnemonic(thunder)).span()));
