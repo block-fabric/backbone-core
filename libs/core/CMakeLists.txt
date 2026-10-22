@@ -16,7 +16,8 @@ add_library(bt_core STATIC
   src/ed25519_bip32.cpp
   src/sidechain.cpp
   src/zmq.cpp
-  src/fsperm.cpp)
+  src/fsperm.cpp
+  src/sidechain_types.cpp)
 target_include_directories(bt_core PUBLIC include)
 target_link_libraries(bt_core PUBLIC bt_blake3 bt_univalue PkgConfig::SODIUM PkgConfig::SQLITE)
 if(BT_STATIC)
@@ -39,7 +40,7 @@ if(BT_WITH_NET)
   find_package(OpenSSL 3.5 REQUIRED)
   set_target_properties(OpenSSL::SSL OpenSSL::Crypto PROPERTIES IMPORTED_GLOBAL TRUE)
   pkg_check_modules(NGHTTP2 REQUIRED IMPORTED_TARGET GLOBAL libnghttp2)
-  add_library(bt_net STATIC src/quic.cpp src/grpc.cpp src/enforcer.cpp src/ecies.cpp)
+  add_library(bt_net STATIC src/quic.cpp src/grpc.cpp src/enforcer.cpp src/ecies.cpp src/bip32.cpp)
   target_include_directories(bt_net PUBLIC include ${NGTCP2_INCLUDE})
   target_compile_definitions(bt_net PRIVATE NGTCP2_STATICLIB NGHTTP2_STATICLIB)
   target_link_libraries(bt_net PUBLIC bt_core ${NGTCP2_CRYPTO_LIB} ${NGTCP2_LIB} PkgConfig::NGHTTP2 OpenSSL::SSL OpenSSL::Crypto Threads::Threads ${CMAKE_DL_LIBS})
