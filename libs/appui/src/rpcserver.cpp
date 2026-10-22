@@ -6,6 +6,8 @@
 #include <bt/log.h>
 #include <bt/parse.h>
 
+#include <sodium.h>
+
 #include <algorithm>
 #include <chrono>
 #include <cstring>
@@ -20,6 +22,7 @@
 #include <windows.h>
 #include <sddl.h>
 using sock_t = SOCKET;
+static constexpr int SOCK_CLOEXEC_FLAG{0}; // Windows: handles are not inherited unless asked (the child gets a list)
 static void sclose(sock_t s) { closesocket(s); }
 static constexpr sock_t BAD_SOCK = INVALID_SOCKET;
 static int poll_one(sock_t s, short events, int timeout_ms)
@@ -37,6 +40,8 @@ static int poll_one(sock_t s, short events, int timeout_ms)
 #include <sys/stat.h>
 #include <unistd.h>
 using sock_t = int;
+//! No socket of this process goes to a child it starts (the app's node).
+static constexpr int SOCK_CLOEXEC_FLAG{SOCK_CLOEXEC};
 static void sclose(sock_t s) { ::close(s); }
 static constexpr sock_t BAD_SOCK = -1;
 static int poll_one(sock_t s, short events, int timeout_ms)
@@ -423,7 +428,7 @@ bool RpcServer::listen(std::string& err)
         err = "the app RPC listens on 127.0.0.1 only";
         return false;
     }
-    sock_t fd = socket(AF_INET, SOCK_STREAM, 0);
+    sock_t fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC_FLAG, 0);
     if (fd == BAD_SOCK) {
         err = "cannot make a socket for the app RPC";
         return false;
@@ -459,7 +464,11 @@ bool RpcServer::listen(std::string& err)
     accept_thread_ = std::thread([this] {
         while (running_) {
             if (poll_one(static_cast<sock_t>(fd_), POLLIN, 250) <= 0) continue;
+#ifdef _WIN32
             sock_t c = accept(static_cast<sock_t>(fd_), nullptr, nullptr);
+#else
+            sock_t c = accept4(static_cast<sock_t>(fd_), nullptr, nullptr, SOCK_CLOEXEC);
+#endif
             if (c == BAD_SOCK) continue;
 #ifdef SO_NOSIGPIPE
             int one{1};
@@ -520,6 +529,9 @@ void RpcServer::serve(std::shared_ptr<Connection> conn)
 {
     const sock_t c{conn->sock};
     std::string buf;
+    // A connection waits idle (for its next request) only once a request of it was authenticated: before that, its
+    // first request's headers come within header_timeout_ms, or it is closed (a local stranger holds no slot long).
+    bool authenticated{false};
     try {
         for (;;) {
             // The headers of a request, within header_timeout_ms of its first byte; an idle connection waits idle_timeout_ms.
@@ -528,7 +540,8 @@ void RpcServer::serve(std::shared_ptr<Connection> conn)
             const int64_t idle_since{now_ms()};
             bool ok{true};
             while ((hdr_end = buf.find("\r\n\r\n")) == std::string::npos) {
-                const int64_t deadline{started < 0 ? idle_since + options_.idle_timeout_ms : started + options_.header_timeout_ms};
+                const int64_t idle_limit{authenticated ? options_.idle_timeout_ms : options_.header_timeout_ms};
+                const int64_t deadline{started < 0 ? idle_since + idle_limit : started + options_.header_timeout_ms};
                 const int64_t left{deadline - now_ms()};
                 if (!running_ || left <= 0) {
                     ok = false;
@@ -585,6 +598,14 @@ void RpcServer::serve(std::shared_ptr<Connection> conn)
                 }
                 clen = static_cast<size_t>(*v);
             }
+            // Who asks, before its body is read: a caller without valid credentials gets 401 (after a pause) and the
+            // connection is closed, its body never read (no stranger makes the node read 16 MB).
+            if (!authenticate(headers)) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(250));
+                send_all(c, "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"jsonrpc\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                break;
+            }
+            authenticated = true;
             std::string body{buf.substr(hdr_end + 4)};
             const int64_t body_start{now_ms()};
             while (body.size() < clen) {
@@ -606,6 +627,8 @@ void RpcServer::serve(std::shared_ptr<Connection> conn)
             buf = body.size() > clen ? body.substr(clen) : std::string{};
             body.resize(clen);
             const HttpReply reply{http(method, path, headers, body)};
+            // A request may carry a phrase (a restore, the unified wallet's setwalletphrase): not left in freed memory.
+            sodium_memzero(body.data(), body.size());
             if (reply.status == 401) std::this_thread::sleep_for(std::chrono::milliseconds(250));
             std::string out{"HTTP/1.1 " + std::to_string(reply.status) + " " + status_text(reply.status) + "\r\n"};
             for (const auto& [k, v] : reply.headers) out += k + ": " + v + "\r\n";
@@ -628,7 +651,7 @@ UniValue rpc_call(const std::string& host, uint16_t port, const std::string& use
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_family = AF_INET;
     if (getaddrinfo(host.c_str(), std::to_string(port).c_str(), &hints, &res) != 0 || !res) throw std::runtime_error("cannot resolve " + host);
-    sock_t c = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    sock_t c = socket(res->ai_family, res->ai_socktype | SOCK_CLOEXEC_FLAG, res->ai_protocol);
     if (c == BAD_SOCK || connect(c, res->ai_addr, static_cast<int>(res->ai_addrlen)) != 0) {
         freeaddrinfo(res);
         if (c != BAD_SOCK) sclose(c);

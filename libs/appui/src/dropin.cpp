@@ -152,6 +152,8 @@ std::optional<uint64_t> parse_coins(const std::string& text)
     return total + f;
 }
 
+WipeOnExit::~WipeOnExit() { sodium_memzero(text.data(), text.size()); }
+
 uint64_t spend_total(std::initializer_list<uint64_t> parts)
 {
     uint64_t total{0};
@@ -532,9 +534,11 @@ UniValue Poller::snapshot() const
     for (const auto& x : look.warnings) w.push_back(x);
     s.pushKV("warnings", w);
     s.pushKV("tip", tip_json(look));
+    // The headers are the blocks (a drop-in node takes a block with its header): the same height and time as the tip.
+    const UniValue tip{tip_json(look)};
     UniValue h{UniValue::VOBJ};
-    h.pushKV("height", look.height ? static_cast<int64_t>(*look.height) : int64_t{-1});
-    h.pushKV("time", static_cast<int64_t>(look.tip_time));
+    h.pushKV("height", tip.find_value("height"));
+    h.pushKV("time", tip.find_value("time"));
     s.pushKV("headerTip", h);
     UniValue wallets{UniValue::VARR};
     if (look.wallet) wallets.push_back(wallet_summary(wallet_name_));

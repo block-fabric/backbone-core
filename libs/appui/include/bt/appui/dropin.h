@@ -55,6 +55,13 @@ std::optional<uint64_t> parse_coins(const std::string& text);
 /** A JSON number of coins (the kit's getbalances: coins as numbers), from satoshis. */
 UniValue coins_value(uint64_t sats);
 
+/** Wipes a string (a phrase, a question with its words) when it goes out of scope, whichever way: a handler that asks
+ *  leaves by an exception the first time (the question goes to the app), and each copy must not outlive it. */
+struct WipeOnExit {
+    std::string& text;
+    ~WipeOnExit();
+};
+
 /** The most any amount of a spend may be: 21,000,000 ECX in satoshis (eCash's supply, as Bitcoin's). */
 inline constexpr uint64_t MAX_MONEY{21'000'000ULL * 100'000'000ULL};
 /**

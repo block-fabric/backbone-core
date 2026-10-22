@@ -108,6 +108,7 @@ public:
 
 private:
     struct Entry {
+        //! The SHA-256 of the request (hex), the question's digest, the wallet.
         std::string request, digest, wallet_id;
         std::chrono::steady_clock::time_point expires;
         uint64_t order;
@@ -254,11 +255,15 @@ struct ChainHost {
     std::string wallet_read{"getbalances"};
     /** The read that stands for the chain's state (node.state: the tip, the peers): its privilege. */
     std::string chain_read{"getblockchaininfo"};
+    /** The read that says which addresses are the wallet's: with wallet_read, the privilege of wallet.tx (its txids
+     *  with the explorer's public reads would tell which outputs are the wallet's). */
+    std::string owner_read{"get_wallet_addresses"};
     /**
-     * The privilege each event type needs (webuievents): an event of a type not listed reaches nobody (but a caller that
-     * may call everything). Empty: the template's events, the chain's to chain_read, the wallet's to wallet_read.
+     * The privileges each event type needs, all of them (webuievents): an event of a type not listed reaches nobody (but
+     * a caller that may call everything). Empty: the template's events, the chain's to chain_read, the wallet's to
+     * wallet_read (wallet.tx also to owner_read).
      */
-    std::map<std::string, std::string> event_privileges;
+    std::map<std::string, std::vector<std::string>> event_privileges;
 };
 
 struct HostOptions {
@@ -299,6 +304,8 @@ private:
     UniValue call_host(const std::string& method, const UniValue& params, Context& ctx);
     Answer ask(const Question& q, Context& ctx);
     UniValue info() const;
+    /** The batches of a webuievents answer that `user` may read (each event by event_privileges). */
+    UniValue filter_events(const UniValue& out, const std::string& user);
     static std::string canonical(const std::string& kind, const std::string& method, const UniValue& params, const std::string& wallet);
 
     ChainHost chain_;

@@ -224,7 +224,9 @@ private:
     UniValue NodeCall(const std::string& method, const UniValue& params, int timeout_ms = 30'000);
     /** A request of the pages at the node (webuihost): its question asked here, sent again with the token on a yes. */
     UniValue NodeRequest(const std::string& kind, const std::string& method, const UniValue& params, const std::string& wallet);
-    UniValue FileTokens(const UniValue& params);
+    UniValue FileTokens(const UniValue& params, std::vector<std::string>& used);
+    /** Whether the app RPC that answers is our node's: it proves it holds the cookie of the node's data folder. */
+    bool ServerIsOurNode(const std::string& datadir, std::string& err);
 
     // ---- the window
     void RegisterHostMethods();
@@ -394,10 +396,45 @@ UniValue App::NodeCall(const std::string& method, const UniValue& params, int ti
     }
 }
 
-UniValue App::FileTokens(const UniValue& params)
+bool App::ServerIsOurNode(const std::string& datadir, std::string& err)
+{
+    std::string cookie;
+    {
+        std::ifstream f(fs::PathFromString(datadir) / "backbone-app.cookie");
+        std::getline(f, cookie);
+    }
+    const size_t colon{cookie.find(':')};
+    std::string secret{colon == std::string::npos ? std::string{} : cookie.substr(colon + 1)};
+    memory_cleanse(cookie.data(), cookie.size());
+    if (secret.empty()) {
+        err = "The node's cookie (backbone-app.cookie in its data folder) cannot be read: is another program answering on its app port?";
+        return false;
+    }
+    const std::string challenge{bt::appui::random_hex(32)};
+    const std::string expected{bt::appui::server_proof(secret, challenge)};
+    memory_cleanse(secret.data(), secret.size());
+    UniValue p{UniValue::VARR};
+    p.push_back(challenge);
+    bool ok{false};
+    try {
+        const UniValue proof{NodeCall("appserverproof", p, 5000)};
+        ok = proof.isStr() && bt::appui::timing_safe_equal(proof.get_str(), expected);
+    } catch (const HostError&) {
+        ok = false;
+    }
+    if (!ok) {
+        err = "Another program answers on the node's app port (it cannot prove it is the node): the app does not talk to it.";
+        LogInfo("app: the program on the app port is not our node; stopping");
+    }
+    return ok;
+}
+
+UniValue App::FileTokens(const UniValue& params, std::vector<std::string>& used)
 {
     // A request naming a file the user chose in this app's chooser for it: a one-time token of the node for it
-    // (webuichosenfile), never the path alone. The grant goes with the use (each file once).
+    // (webuichosenfile), never the path alone; a fresh one each time the request goes to the node (the node takes a
+    // token when it looks at the request, and a request asked in the dialog goes twice). The choice itself is
+    // forgotten when the request ends (NodeRequest), whatever its outcome: each file serves one request.
     UniValue tokens{UniValue::VARR};
     std::vector<std::string> paths;
     std::function<void(const UniValue&)> scan = [&](const UniValue& v) {
@@ -413,8 +450,8 @@ UniValue App::FileTokens(const UniValue& params)
             const auto it{m_chosen.find(path)};
             if (it == m_chosen.end() || SteadySeconds() - it->second.when > CHOSEN_FILE_S) continue;
             c = it->second;
-            m_chosen.erase(it);
         }
+        if (std::find(used.begin(), used.end(), path) == used.end()) used.push_back(path);
         UniValue p{UniValue::VARR};
         p.push_back(path);
         p.push_back(c.write);
@@ -450,12 +487,23 @@ UniValue App::NodeRequest(const std::string& kind, const std::string& method, co
     request.pushKV("method", method);
     request.pushKV("params", params);
     if (!wallet.empty()) request.pushKV("wallet", wallet);
+    // The files this request uses, forgotten when it ends (answered, declined or failed).
+    std::vector<std::string> files;
+    struct Forget {
+        App& app;
+        std::vector<std::string>& paths;
+        ~Forget()
+        {
+            LOCK(app.m_mutex);
+            for (const std::string& path : paths) app.m_chosen.erase(path);
+        }
+    } forget{*this, files};
     auto send = [&](const std::string& token) {
         UniValue p{UniValue::VARR};
         p.push_back(request);
         p.push_back(token);
         p.push_back("");
-        p.push_back(kind == "host" ? FileTokens(params) : UniValue{UniValue::VARR});
+        p.push_back(kind == "host" ? FileTokens(params, files) : UniValue{UniValue::VARR});
         return NodeCall("webuihost", p, REQUEST_TIMEOUT_MS);
     };
     UniValue answer{send("")};
@@ -536,6 +584,9 @@ bool App::StartNode(std::string& err)
                 p.push_back(r);
                 return p;
             }(), 5000)};
+            // That it is our node that answers on that port, not a program that took the port first: it proves it holds
+            // the cookie of the node's data folder (owner-only), which only the node writes.
+            if (!ServerIsOurNode(s.datadir, err)) return false;
             LOCK(m_mutex);
             m_node_info = Param(info, "result");
             m_node_ready = true;

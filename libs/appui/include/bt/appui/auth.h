@@ -33,6 +33,12 @@ bool check_password(const RpcAuth& a, std::string_view password);
 std::string random_hex(size_t bytes = 32);
 /** Constant-time comparison of two texts of the same length (false when the lengths differ). */
 bool timing_safe_equal(std::string_view a, std::string_view b);
+/**
+ * The proof that the app RPC answering is the node's (appserverproof): hex(HMAC-SHA256(key = the cookie's secret, msg =
+ * "bt-app-server-proof/v1" 0x00 challenge)). The app that started the node reads the cookie from the node's data folder
+ * (owner-only) and checks the answer, so a program that took the port first (another user's) is never trusted.
+ */
+std::string server_proof(std::string_view cookie_secret, std::string_view challenge);
 
 /** Basic credentials of an Authorization header ("Basic <base64 user:pass>"). */
 std::optional<std::pair<std::string, std::string>> parse_basic(std::string_view header);

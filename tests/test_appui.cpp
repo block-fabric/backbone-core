@@ -17,6 +17,13 @@
 #include <fstream>
 #include <thread>
 
+#ifndef _WIN32
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
+
 using namespace bt;
 using namespace bt::appui;
 
@@ -197,6 +204,54 @@ TEST(appui_server_listens_on_loopback_with_a_cookie)
     CHECK(refused);
     s.stop();
     CHECK(!std::filesystem::exists(o.cookie_file));
+    std::filesystem::remove_all(dir);
+}
+
+TEST(appui_server_refuses_a_stranger_before_its_body_and_proves_it_is_the_node)
+{
+    const std::string dir{(std::filesystem::temp_directory_path() / ("bt-appui-" + random_hex(6))).string()};
+    std::filesystem::create_directories(dir);
+    ServerOptions o;
+    o.cookie_file = dir + "/app.cookie";
+    o.bind = "127.0.0.1";
+    RpcServer s(o);
+    s.add("getcount", {}, [](const Call&) { return UniValue{1}; });
+    Toy toy;
+    RemoteHost host(toy.chain(), {}, s);
+    std::string err;
+    CHECK(s.listen(err));
+#ifndef _WIN32
+    // Headers announcing 1 MB, no credentials, no body sent: 401 at once, the connection closed (its body never read).
+    const int fd{::socket(AF_INET, SOCK_STREAM, 0)};
+    sockaddr_in a{};
+    a.sin_family = AF_INET;
+    a.sin_port = htons(s.port());
+    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    CHECK(::connect(fd, reinterpret_cast<sockaddr*>(&a), sizeof(a)) == 0);
+    const std::string head{"POST / HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 1000000\r\n\r\n"};
+    CHECK(::send(fd, head.data(), head.size(), 0) == static_cast<ssize_t>(head.size()));
+    const auto t0{std::chrono::steady_clock::now()};
+    std::string got;
+    char buf[512];
+    for (ssize_t n; (n = ::recv(fd, buf, sizeof(buf), 0)) > 0;) got.append(buf, static_cast<size_t>(n));
+    ::close(fd);
+    CHECK(got.rfind("HTTP/1.1 401", 0) == 0);
+    CHECK(std::chrono::steady_clock::now() - t0 < std::chrono::seconds{5});
+#endif
+    // The proof of the node: HMAC of the challenge under the cookie's secret, which only the data folder's owner reads.
+    std::ifstream f(o.cookie_file);
+    std::string cookie;
+    std::getline(f, cookie);
+    const std::string secret{cookie.substr(11)};
+    const std::string challenge{random_hex(32)};
+    UniValue p{UniValue::VARR};
+    p.push_back(challenge);
+    const UniValue proof{rpc_call("127.0.0.1", s.port(), "__cookie__", secret, "appserverproof", p)};
+    CHECK_EQ(proof.get_str(), server_proof(secret, challenge));
+    CHECK(server_proof(secret, challenge) != server_proof("another secret", challenge));
+    CHECK(server_proof(secret, challenge) != server_proof(secret, random_hex(32)));
+    host.stop();
+    s.stop();
     std::filesystem::remove_all(dir);
 }
 
@@ -517,10 +572,13 @@ TEST(appui_node_state_and_events_hide_the_wallet_from_a_caller_without_the_walle
         UniValue b{UniValue::VOBJ};
         b.pushKV("main", 5);
         s.pushKV("balances", b);
+        UniValue w{UniValue::VARR};
+        w.push_back("main");
+        s.pushKV("wallets", w);
         return s;
     };
     ServerOptions o;
-    o.whitelist.add("app:webuihost,webuievents,getblockchaininfo,getbalances");
+    o.whitelist.add("app:webuihost,webuievents,getblockchaininfo,getbalances,get_wallet_addresses");
     o.whitelist.add("chainonly:webuihost,webuievents,getblockchaininfo");
     o.whitelist.add("nothing:webuihost,webuievents");
     o.whitelist.add("walletonly:webuihost,webuievents,getbalances");
@@ -532,6 +590,7 @@ TEST(appui_node_state_and_events_hide_the_wallet_from_a_caller_without_the_walle
     CHECK(host.run(r, "", "", UniValue{}, "app")["result"].exists("balances"));
     const UniValue chain_only{host.run(r, "", "", UniValue{}, "chainonly")["result"]};
     CHECK(!chain_only.exists("balances"));
+    CHECK(!chain_only.exists("wallets")); // not even that there is a wallet
     CHECK_EQ(chain_only["connections"].getInt<int>(), 2);
     // Without the chain read, node.state is not run at all (it is not an empty privilege).
     bool refused{false};
@@ -563,5 +622,26 @@ TEST(appui_node_state_and_events_hide_the_wallet_from_a_caller_without_the_walle
     host.events().flush();
     CHECK(types(host.events_for(1, std::chrono::milliseconds{0}, "app")).find("somethingnew") == std::string::npos);
     CHECK(types(host.events_for(1, std::chrono::milliseconds{0}, "root")).find("somethingnew") != std::string::npos);
+    // wallet.tx (txids: with the explorer they tell the wallet's outputs) needs the wallet read and the owner read.
+    host.events().emit("wallet.tx", UniValue{"ab"});
+    host.events().flush();
+    CHECK(types(host.events_for(2, std::chrono::milliseconds{0}, "app")).find("wallet.tx") != std::string::npos);
+    CHECK(types(host.events_for(2, std::chrono::milliseconds{0}, "walletonly")).find("wallet.tx") == std::string::npos);
+    // A caller who may see none of what comes waits its whole timeout: when its wait ends says nothing of the wallet.
+    const UniValue now{host.events_for(0, std::chrono::milliseconds{0}, "chainonly")};
+    const uint64_t seq{now["seq"].getInt<uint64_t>()};
+    std::thread later([&host] {
+        std::this_thread::sleep_for(std::chrono::milliseconds{50});
+        host.events().emit("wallet.balance", UniValue{6});
+        host.events().flush();
+    });
+    const auto t0{std::chrono::steady_clock::now()};
+    const UniValue waited{host.events_for(seq, std::chrono::milliseconds{400}, "chainonly")};
+    const auto took{std::chrono::steady_clock::now() - t0};
+    later.join();
+    CHECK(waited["batches"].empty());
+    CHECK(took >= std::chrono::milliseconds{380});
+    // A reader of the wallet hears it at once.
+    CHECK(types(host.events_for(seq, std::chrono::milliseconds{400}, "app")).find("wallet.balance") != std::string::npos);
     host.stop();
 }

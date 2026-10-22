@@ -6,12 +6,15 @@
 #include <bt/crypto.h>
 #include <bt/log.h>
 
+#include <sodium.h>
+
 #include <algorithm>
 #include <cstring>
 #include <filesystem>
 
 #ifdef _WIN32
 #include <windows.h>
+#include <sddl.h>
 #else
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -98,6 +101,23 @@ std::string Bindings::text(Check c)
     return "?";
 }
 
+namespace {
+//! What a token keeps of its request: its SHA-256 (enough to tell it is the same request; a restore's typed phrase is
+//! in the request, which is not kept).
+std::string request_hash(const std::string& request)
+{
+    unsigned char h[crypto_hash_sha256_BYTES];
+    crypto_hash_sha256(h, reinterpret_cast<const unsigned char*>(request.data()), request.size());
+    static constexpr char HEX[]{"0123456789abcdef"};
+    std::string out;
+    for (const unsigned char c : h) {
+        out += HEX[c >> 4];
+        out += HEX[c & 15];
+    }
+    return out;
+}
+} // namespace
+
 std::string Bindings::issue(const std::string& request, const std::string& digest, const std::string& wallet_id, std::chrono::steady_clock::time_point now)
 {
     const std::string token{random_hex(32)};
@@ -107,7 +127,7 @@ std::string Bindings::issue(const std::string& request, const std::string& diges
         const auto oldest{std::ranges::min_element(entries_, {}, [](const auto& e) { return e.second.order; })};
         entries_.erase(oldest);
     }
-    entries_.emplace(token, Entry{request, digest, wallet_id, now + TOKEN_EXPIRY, next_++});
+    entries_.emplace(token, Entry{request_hash(request), digest, wallet_id, now + TOKEN_EXPIRY, next_++});
     return token;
 }
 
@@ -119,7 +139,7 @@ Bindings::Check Bindings::take(const std::string& token, const std::string& requ
     const Entry entry{it->second};
     entries_.erase(it);
     if (entry.expires <= now) return Check::EXPIRED;
-    if (entry.request != request) return Check::REQUEST_CHANGED;
+    if (entry.request != request_hash(request)) return Check::REQUEST_CHANGED;
     if (entry.wallet_id != wallet_id) return Check::WALLET_CHANGED;
     if (entry.digest != digest) return Check::QUESTION_CHANGED;
     return Check::OK;
@@ -358,7 +378,15 @@ void ChosenFiles::write(const File& f, const std::string& data)
     HANDLE h{f.held->file};
     bool made{false};
     if (h == INVALID_HANDLE_VALUE) {
-        h = CreateFileW(std::filesystem::path{f.path}.wstring().c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+        // Owner-only, as on POSIX (0600): a backup phrase saved into a shared folder is not readable by the others.
+        PSECURITY_DESCRIPTOR sd{nullptr};
+        if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(L"D:P(A;;FA;;;OW)", SDDL_REVISION_1, &sd, nullptr)) {
+            throw std::runtime_error("cannot make its access list");
+        }
+        SECURITY_ATTRIBUTES sa{sizeof(sa), sd, FALSE};
+        h = CreateFileW(std::filesystem::path{std::u8string(f.path.begin(), f.path.end())}.wstring().c_str(), GENERIC_WRITE, 0, &sa, CREATE_NEW,
+                        FILE_ATTRIBUTE_NORMAL, nullptr);
+        LocalFree(sd);
         if (h == INVALID_HANDLE_VALUE) throw std::runtime_error("it cannot be made (a file appeared there?)");
         made = true;
     } else {
@@ -438,7 +466,9 @@ struct RemoteHost::Context {
     bool accepted{false};
     ~Context()
     {
-        std::fill(passphrase.begin(), passphrase.end(), '\0');
+        // The request may carry a phrase typed for a restore: not left in freed memory.
+        sodium_memzero(passphrase.data(), passphrase.size());
+        sodium_memzero(request.data(), request.size());
     }
 };
 
@@ -462,11 +492,12 @@ RemoteHost::RemoteHost(ChainHost chain, HostOptions options, RpcServer& server)
     chain_.privileges.try_emplace("node.state", std::vector<std::string>{chain_.chain_read});
     // Who may read which event: the chain's to a reader of the chain, the wallet's to a reader of the wallet.
     for (const char* e : {"tip", "headerTip", "connections", "networkActive", "alert", "progress", "init.message", "bans", "mempool", "traffic"}) {
-        chain_.event_privileges.try_emplace(e, chain_.chain_read);
+        chain_.event_privileges.try_emplace(e, std::vector<std::string>{chain_.chain_read});
     }
-    for (const char* e : {"wallet.loaded", "wallet.unloaded", "wallet.status", "wallet.balance", "wallet.tx", "wallet.progress", "wallet.addressbook"}) {
-        chain_.event_privileges.try_emplace(e, chain_.wallet_read);
+    for (const char* e : {"wallet.loaded", "wallet.unloaded", "wallet.status", "wallet.balance", "wallet.progress", "wallet.addressbook"}) {
+        chain_.event_privileges.try_emplace(e, std::vector<std::string>{chain_.wallet_read});
     }
+    chain_.event_privileges.try_emplace("wallet.tx", std::vector<std::string>{chain_.wallet_read, chain_.owner_read});
     server_.add("webuihost", {"request", "token", "passphrase", "files"}, [this](const Call& c) {
         std::string passphrase{c[2].isStr() ? c[2].get_str() : std::string{}};
         UniValue out{run(c[0], c[1].isStr() ? c[1].get_str() : std::string{}, passphrase, c[3], c.user)};
@@ -484,6 +515,12 @@ RemoteHost::RemoteHost(ChainHost chain, HostOptions options, RpcServer& server)
         const int64_t timeout{c[1].isNum() ? std::clamp<int64_t>(c[1].getInt<int64_t>(), 0, 30000) : 0};
         if (stopped_) throw RpcError(RPC_CLIENT_NOT_CONNECTED, "Shutting down");
         return events_for(static_cast<uint64_t>(std::max<int64_t>(0, since)), std::chrono::milliseconds{timeout}, c.user);
+    });
+    // Who answers: the proof that this server holds the cookie of the node's data folder (auth.h server_proof).
+    server_.add("appserverproof", {"challenge"}, [this](const Call& c) {
+        if (!c[0].isStr() || c[0].get_str().size() < 32 || c[0].get_str().size() > 128) throw RpcError(RPC_INVALID_PARAMETER, "challenge: 32 to 128 characters");
+        if (server_.cookie().empty()) throw RpcError(RPC_MISC_ERROR, "No cookie");
+        return UniValue{server_proof(server_.cookie(), c[0].get_str())};
     });
     server_.add("webuichosenfile", {"path", "write", "overwrite"}, [this](const Call& c) {
         if (!c[0].isStr()) throw RpcError(RPC_INVALID_PARAMETER, "path: the file chosen");
@@ -594,10 +631,11 @@ UniValue RemoteHost::call_host(const std::string& method, const UniValue& params
     if (method == "node.state") {
         if (!chain_.snapshot) throw HostError(HOST_METHOD_NOT_FOUND, "No node state");
         UniValue s{chain_.snapshot()};
-        if (s.isObject() && s.exists("balances") && !may(chain_.wallet_read)) {
+        if (s.isObject() && !may(chain_.wallet_read)) {
+            // The wallet's amounts, and whether there is a wallet at all, only to a reader of the wallet.
             UniValue kept{UniValue::VOBJ};
             for (size_t i{0}; i < s.size(); ++i) {
-                if (s.getKeys()[i] != "balances") kept.pushKV(s.getKeys()[i], s.getValues()[i]);
+                if (s.getKeys()[i] != "balances" && s.getKeys()[i] != "wallets") kept.pushKV(s.getKeys()[i], s.getValues()[i]);
             }
             s = std::move(kept);
         }
@@ -675,15 +713,30 @@ UniValue RemoteHost::run(const UniValue& request, const std::string& token, cons
 
 UniValue RemoteHost::events_for(uint64_t since, std::chrono::milliseconds timeout, const std::string& user)
 {
-    UniValue out{log_.after(since, timeout)};
-    if (server_.may_call_all(user)) return out;
+    if (server_.may_call_all(user)) return log_.after(since, timeout);
+    // A caller who may see none of what came waits on until the timeout (and gets the new seq then): the moment its
+    // wait ends tells nothing of events it may not read (the wallet's activity).
+    const auto deadline{std::chrono::steady_clock::now() + timeout};
+    for (;;) {
+        const auto left{std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now())};
+        UniValue filtered{filter_events(log_.after(since, std::max(left, std::chrono::milliseconds{0})), user)};
+        if (left.count() <= 0 || filtered.find_value("reset").isTrue() || !filtered.find_value("batches").empty() || stopped_) return filtered;
+        const uint64_t seq{filtered.find_value("seq").getInt<uint64_t>()};
+        if (seq == since) return filtered; // the wait ended with nothing new: its timeout
+        since = seq;
+    }
+}
+
+UniValue RemoteHost::filter_events(const UniValue& out, const std::string& user)
+{
     // Each event only to a caller of the read it stands for (event_privileges); a type not listed to nobody.
     std::map<std::string, bool> may;
     auto allowed = [&](const std::string& type) {
         auto it{may.find(type)};
         if (it != may.end()) return it->second;
         const auto need{chain_.event_privileges.find(type)};
-        const bool ok{need != chain_.event_privileges.end() && server_.allowed(user, need->second)};
+        const bool ok{need != chain_.event_privileges.end() &&
+                      std::ranges::all_of(need->second, [&](const std::string& m) { return server_.allowed(user, m); })};
         may[type] = ok;
         return ok;
     };

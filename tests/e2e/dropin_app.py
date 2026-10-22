@@ -92,7 +92,8 @@ def main(chain: Chain, argv=None):
 
         print(f"== {chain.stem}-app (node A) in a virtual display", flush=True)
         main_address = main_chain.wallet.getnewaddress()
-        prelude = f"window.__E2E = {json.dumps({'peerAddress': peer_address, 'mainAddress': main_address})};\n"
+        save_file = base / "saved-backup-phrase.txt"
+        prelude = f"window.__E2E = {json.dumps({'peerAddress': peer_address, 'mainAddress': main_address, 'saveFile': str(save_file)})};\n"
         script = base / "app.js"
         script.write_text(prelude + (HERE / "common.js").read_text() + "\n" + chain.script.read_text())
         home = base / "home"
@@ -153,6 +154,15 @@ def main(chain: Chain, argv=None):
             failures += json.loads(results[-1])["failures"]
         if code != 0:
             failures.append(f"{chain.stem}-app exit code {code}")
+        # The backup phrase saved to the file chosen (after its question): owner-only, its words in it.
+        if not save_file.exists():
+            failures.append("the backup phrase was not saved to the file chosen")
+        else:
+            mode = save_file.stat().st_mode & 0o777
+            words = save_file.read_text().splitlines()[1].split() if len(save_file.read_text().splitlines()) > 1 else []
+            print(f"== the phrase saved: mode {mode:o}, {len(words)} words", flush=True)
+            if mode != 0o600 or len(words) != 12:
+                failures.append(f"the saved phrase file: mode {mode:o}, {len(words)} words")
         stop_miner.set()
         time.sleep(4)
         # The withdrawal paid on eCash: Backbone's wallet received it.

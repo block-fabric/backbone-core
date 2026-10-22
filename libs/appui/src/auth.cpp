@@ -57,6 +57,14 @@ bool timing_safe_equal(std::string_view a, std::string_view b)
     return d == 0;
 }
 
+std::string server_proof(std::string_view cookie_secret, std::string_view challenge)
+{
+    std::string msg{"bt-app-server-proof/v1"};
+    msg.push_back('\0');
+    msg.append(challenge);
+    return hmac_hex(cookie_secret, msg);
+}
+
 bool check_password(const RpcAuth& a, std::string_view password) { return timing_safe_equal(hmac_hex(a.salt, password), a.hash); }
 
 std::string random_hex(size_t bytes)

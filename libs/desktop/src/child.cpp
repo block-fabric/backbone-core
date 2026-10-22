@@ -23,7 +23,9 @@ std::string program_dir()
 #ifdef _WIN32
     wchar_t buf[32768];
     const DWORD n{GetModuleFileNameW(nullptr, buf, 32768)};
-    return std::filesystem::path(std::wstring(buf, n)).parent_path().string();
+    // UTF-8, as the app's paths are (path::string() would be the ANSI code page's).
+    const std::u8string u8{std::filesystem::path(std::wstring(buf, n)).parent_path().u8string()};
+    return std::string{u8.begin(), u8.end()};
 #else
     std::error_code ec;
     const auto p{std::filesystem::read_symlink("/proc/self/exe", ec)};
@@ -34,6 +36,9 @@ std::string program_dir()
 Child::~Child() { stop(5000); }
 
 #ifdef _WIN32
+//! A path of UTF-8 text (the app's paths are; path(std::string) would read them in the ANSI code page).
+static std::filesystem::path utf8_path(const std::string& s) { return std::filesystem::path(std::u8string(s.begin(), s.end())); }
+
 static std::wstring quote(const std::wstring& a)
 {
     // CommandLineToArgvW's rules: backslashes before a quote doubled, quotes escaped.
@@ -68,15 +73,32 @@ bool Child::start(const std::string& program, const std::vector<std::string>& ar
         return false;
     }
     SetHandleInformation(in_write, HANDLE_FLAG_INHERIT, 0);
-    HANDLE log{CreateFileW(std::filesystem::path(log_file).wstring().c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr)};
-    std::wstring cmd{quote(std::filesystem::path(program).wstring())};
-    for (const auto& a : args) cmd += L" " + quote(std::filesystem::path(a).wstring());
-    STARTUPINFOW si{};
-    si.cb = sizeof(si);
-    si.dwFlags = STARTF_USESTDHANDLES;
-    si.hStdInput = in_read;
-    si.hStdOutput = log;
-    si.hStdError = log;
+    HANDLE log{CreateFileW(utf8_path(log_file).wstring().c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr)};
+    std::wstring cmd{quote(utf8_path(program).wstring())};
+    for (const auto& a : args) cmd += L" " + quote(utf8_path(a).wstring());
+    STARTUPINFOEXW si{};
+    si.StartupInfo.cb = sizeof(si);
+    si.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+    si.StartupInfo.hStdInput = in_read;
+    si.StartupInfo.hStdOutput = log;
+    si.StartupInfo.hStdError = log;
+    // Only these handles go to the node (its stdin pipe and its log), never another inheritable one of the app (a
+    // socket, a file): an explicit list instead of every inheritable handle.
+    std::vector<HANDLE> inherit{in_read};
+    if (log != INVALID_HANDLE_VALUE) inherit.push_back(log);
+    SIZE_T attr_size{0};
+    InitializeProcThreadAttributeList(nullptr, 1, 0, &attr_size);
+    std::vector<unsigned char> attr_buf(attr_size);
+    auto* attrs{reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(attr_buf.data())};
+    if (!InitializeProcThreadAttributeList(attrs, 1, 0, &attr_size) ||
+        !UpdateProcThreadAttribute(attrs, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, inherit.data(), inherit.size() * sizeof(HANDLE), nullptr, nullptr)) {
+        CloseHandle(in_read);
+        CloseHandle(in_write);
+        if (log != INVALID_HANDLE_VALUE) CloseHandle(log);
+        err = "cannot prepare the node's handles";
+        return false;
+    }
+    si.lpAttributeList = attrs;
     PROCESS_INFORMATION pi{};
     job_ = CreateJobObjectW(nullptr, nullptr);
     if (job_) {
@@ -84,7 +106,9 @@ bool Child::start(const std::string& program, const std::vector<std::string>& ar
         info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
         SetInformationJobObject(job_, JobObjectExtendedLimitInformation, &info, sizeof(info));
     }
-    const BOOL ok{CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW | CREATE_SUSPENDED, nullptr, nullptr, &si, &pi)};
+    const BOOL ok{CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW | CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT, nullptr,
+                                 nullptr, &si.StartupInfo, &pi)};
+    DeleteProcThreadAttributeList(attrs);
     CloseHandle(in_read);
     if (log != INVALID_HANDLE_VALUE) CloseHandle(log);
     if (!ok) {
