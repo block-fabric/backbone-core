@@ -53,6 +53,7 @@
 #include <unistd.h>
 #else
 #include <winsock2.h>
+#include <ws2tcpip.h>
 #endif
 
 using namespace std::chrono_literals;
@@ -117,6 +118,14 @@ std::string Str(const UniValue& o, const std::string& key)
 /** A free port on 127.0.0.1, near `wanted` when it is free. */
 uint16_t FreePort(uint16_t wanted)
 {
+#ifdef _WIN32
+    // Winsock before the first socket of this process (the window's own code opens none).
+    static const bool wsa{[] {
+        WSADATA d;
+        return WSAStartup(MAKEWORD(2, 2), &d) == 0;
+    }()};
+    if (!wsa) return 0;
+#endif
     for (int attempt{0}; attempt < 2; ++attempt) {
 #ifdef _WIN32
         SOCKET s{socket(AF_INET, SOCK_STREAM, 0)};

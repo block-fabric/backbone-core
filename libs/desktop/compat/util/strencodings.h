@@ -24,11 +24,11 @@ std::string ToUpper(std::string_view str);
 bool IsHex(std::string_view str);
 
 template <typename T>
-std::optional<T> ToIntegral(std::string_view str)
+std::optional<T> ToIntegral(std::string_view str, int base = 10)
 {
     static_assert(std::is_integral_v<T>);
     T result;
-    const auto [ptr, ec]{std::from_chars(str.data(), str.data() + str.size(), result)};
+    const auto [ptr, ec]{std::from_chars(str.data(), str.data() + str.size(), result, base)};
     if (ptr != str.data() + str.size() || ec != std::errc{}) return std::nullopt;
     return result;
 }

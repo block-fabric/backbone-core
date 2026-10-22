@@ -205,7 +205,9 @@ function(bt_desktop_app target)
   endif()
   if(WIN32)
     target_include_directories(${target} SYSTEM PRIVATE "${WEBVIEW2_INCLUDE_DIR}")
-    target_compile_definitions(${target} PRIVATE WEBVIEW_MSWEBVIEW2_BUILTIN_IMPL=1 WEBVIEW_MSWEBVIEW2_EXPLICIT_LINK=1)
+    # As Bitcoin Core's build defines them for Windows (the template's files test WIN32, not _WIN32).
+    target_compile_definitions(${target} PRIVATE WIN32 _WIN32_WINNT=0x0A00 _WIN32_IE=0x0A00 NOMINMAX
+                                                 WEBVIEW_MSWEBVIEW2_BUILTIN_IMPL=1 WEBVIEW_MSWEBVIEW2_EXPLICIT_LINK=1)
     target_link_libraries(${target} PRIVATE advapi32 dwmapi gdi32 ole32 shell32 shlwapi user32 uuid version)
   else()
     target_link_libraries(${target} PRIVATE PkgConfig::WEBKITGTK)
