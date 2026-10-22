@@ -16,6 +16,12 @@ struct Blake3::Impl {
 };
 Blake3::Blake3() : m(new Impl) { blake3_hasher_init(&m->h); }
 Blake3::Blake3(const ByteArray<32>& key) : m(new Impl) { blake3_hasher_init_keyed(&m->h, key.data()); }
+Blake3 Blake3::derive_key(std::string_view context)
+{
+    Blake3 b;
+    blake3_hasher_init_derive_key_raw(&b.m->h, context.data(), context.size());
+    return b;
+}
 Blake3::~Blake3() { delete m; }
 Blake3::Blake3(const Blake3& o) : m(new Impl(*o.m)) {}
 Blake3& Blake3::operator=(const Blake3& o)
