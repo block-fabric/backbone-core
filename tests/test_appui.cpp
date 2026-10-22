@@ -8,6 +8,7 @@
 #include <bt/appui/host.h>
 #include <bt/appui/phrase.h>
 #include <bt/appui/rpcserver.h>
+#include <bt/appui/text.h>
 #include <bt/bip32.h>
 #include <bt/crypto.h>
 #include <bt/fsperm.h>
@@ -644,4 +645,61 @@ TEST(appui_node_state_and_events_hide_the_wallet_from_a_caller_without_the_walle
     // A reader of the wallet hears it at once.
     CHECK(types(host.events_for(seq, std::chrono::milliseconds{400}, "app")).find("wallet.balance") != std::string::npos);
     host.stop();
+}
+
+namespace {
+/** The UTF-8 of one code point. */
+std::string utf8(uint32_t cp)
+{
+    std::string s;
+    if (cp < 0x80) {
+        s += static_cast<char>(cp);
+    } else if (cp < 0x800) {
+        s += static_cast<char>(0xc0 | (cp >> 6));
+        s += static_cast<char>(0x80 | (cp & 0x3f));
+    } else if (cp < 0x10000) {
+        s += static_cast<char>(0xe0 | (cp >> 12));
+        s += static_cast<char>(0x80 | ((cp >> 6) & 0x3f));
+        s += static_cast<char>(0x80 | (cp & 0x3f));
+    } else {
+        s += static_cast<char>(0xf0 | (cp >> 18));
+        s += static_cast<char>(0x80 | ((cp >> 12) & 0x3f));
+        s += static_cast<char>(0x80 | ((cp >> 6) & 0x3f));
+        s += static_cast<char>(0x80 | (cp & 0x3f));
+    }
+    return s;
+}
+} // namespace
+
+TEST(appui_display_text_refuses_controls_format_and_invisible_code_points)
+{
+    CHECK_EQ(std::string{bt::appui::display_text_unicode_version()}, std::string{"15.1.0"});
+    // Refused: Cc, Cf (bidi, zero-width, BOM, Arabic letter mark, soft hyphen), Zl, Zp, Co, Cn, and the default
+    // ignorables that are letters or marks (Hangul fillers, Khmer vowels inherent, Mongolian selectors, variation
+    // selectors, tags).
+    for (uint32_t cp : {0x0000u, 0x0009u, 0x000Au, 0x001Fu, 0x007Fu, 0x0080u, 0x009Fu, 0x00ADu, 0x034Fu, 0x061Cu, 0x115Fu, 0x1160u, 0x17B4u,
+                        0x17B5u, 0x180Bu, 0x180Cu, 0x180Du, 0x180Eu, 0x180Fu, 0x200Bu, 0x200Cu, 0x200Du, 0x200Eu, 0x200Fu, 0x2028u, 0x2029u,
+                        0x202Au, 0x202Eu, 0x2060u, 0x2064u, 0x2066u, 0x2069u, 0x3164u, 0xFE00u, 0xFE0Fu, 0xFEFFu, 0xFFA0u, 0xE000u, 0xF8FFu,
+                        0x0378u, 0xFFFEu, 0xFFFFu, 0x1BCA0u, 0x1D173u, 0xE0000u, 0xE0001u, 0xE007Fu, 0xE0100u, 0xE0FFFu, 0xF0000u,
+                        0x10FFFDu, 0x10FFFFu}) {
+        const std::string why{bt::appui::display_text_problem("a" + utf8(cp) + "b")};
+        if (why.empty()) std::fprintf(stderr, "  U+%04X taken\n", cp);
+        CHECK(!why.empty());
+        CHECK(bt::appui::display_text_refused(cp));
+    }
+    // Taken: the edges of those ranges, spaces (Zs), letters, marks, symbols, emoji.
+    for (uint32_t cp : {0x0020u, 0x007Eu, 0x00A0u, 0x00ACu, 0x00AEu, 0x034Eu, 0x0350u, 0x00E9u, 0x115Eu, 0x1161u, 0x17B3u, 0x17B6u, 0x180Au,
+                        0x1810u, 0x200Au, 0x2010u, 0x2027u, 0x202Fu, 0x205Fu, 0x3163u, 0x3165u, 0xFDFFu, 0xFE10u, 0xFF9Fu, 0xFFA1u, 0xF900u,
+                        0x1F35Cu, 0x1F600u, 0x20000u, 0x323AFu}) {
+        const std::string why{bt::appui::display_text_problem("a" + utf8(cp) + "b")};
+        if (!why.empty()) std::fprintf(stderr, "  U+%04X refused: %s\n", cp, why.c_str());
+        CHECK(why.empty());
+    }
+    CHECK(bt::appui::display_text_problem("").empty());
+    CHECK(bt::appui::display_text_problem("Thanks for lunch").empty());
+    CHECK_EQ(bt::appui::display_text_problem("x\xe2\x80\xaey"), std::string{"No control, format or invisible character (U+202E)"});
+    // Not UTF-8: a lone byte, a cut sequence, an overlong form, a surrogate, past U+10FFFF.
+    for (const char* bad : {"\x80", "\xc3", "\xe2\x80", "\xc0\xaf", "\xe0\x80\xaf", "\xed\xa0\x80", "\xf4\x90\x80\x80", "\xff"}) {
+        CHECK_EQ(bt::appui::display_text_problem(bad), std::string{"Not valid UTF-8 text"});
+    }
 }
