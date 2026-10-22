@@ -32,7 +32,7 @@ std::string one_line(std::string s, size_t max)
     return s;
 }
 
-const UniValue& field(const UniValue& o, const std::string& key) { return o.isObject() ? o.find_value(key) : NULLV; }
+const UniValue& field(const UniValue& o, const char* key) { return o.isObject() ? o.find_value(key) : NULLV; }
 } // namespace
 
 UniValue question_json(const Question& q)
