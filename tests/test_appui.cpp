@@ -28,7 +28,7 @@ std::map<std::string, std::string> headers_for(const std::string& user, const st
 UniValue body_of(const RpcServer::HttpReply& r)
 {
     UniValue v;
-    v.read(r.body);
+    if (!v.read(r.body)) return UniValue{};
     return v;
 }
 
@@ -246,7 +246,7 @@ TEST(appui_host_tokens_bind_request_question_wallet_once)
     s.add("getcount", {}, [](const Call&) { return UniValue{3}; });
     RemoteHost host(toy.chain(), {}, s);
     UniValue req;
-    req.read(R"({"kind":"host","method":"toy.pay","params":{"amount":"1.5"}})");
+    CHECK(req.read(R"({"kind":"host","method":"toy.pay","params":{"amount":"1.5"}})"));
     // First: a question with a token, nothing done.
     UniValue out{host.run(req, "", "", UniValue{}, "app")};
     CHECK(out.exists("confirm"));
@@ -272,7 +272,7 @@ TEST(appui_host_tokens_bind_request_question_wallet_once)
     // A changed request (another amount) with a token of the first: refused, and the token is gone.
     std::string t2{host.run(req, "", "", UniValue{}, "app")["confirm"]["token"].get_str()};
     UniValue other;
-    other.read(R"({"kind":"host","method":"toy.pay","params":{"amount":"9"}})");
+    CHECK(other.read(R"({"kind":"host","method":"toy.pay","params":{"amount":"9"}})"));
     CHECK_EQ(refused_with(other, t2), int{CONFIRMATION_REFUSED});
     CHECK_EQ(refused_with(req, t2), int{CONFIRMATION_REFUSED});
     // Another wallet behind the same request: refused.
@@ -282,10 +282,10 @@ TEST(appui_host_tokens_bind_request_question_wallet_once)
     CHECK_EQ(toy.sent, 1);
     // Keys given twice, unknown fields: refused before anything.
     UniValue dup;
-    dup.read(R"({"kind":"host","method":"toy.pay","params":{"amount":"1","amount":"2"}})");
+    CHECK(dup.read(R"({"kind":"host","method":"toy.pay","params":{"amount":"1","amount":"2"}})"));
     CHECK(refused_with(dup, "") != 0);
     UniValue extra;
-    extra.read(R"({"kind":"host","method":"toy.pay","params":{},"also":1})");
+    CHECK(extra.read(R"({"kind":"host","method":"toy.pay","params":{},"also":1})"));
     CHECK(refused_with(extra, "") != 0);
     host.stop();
 }
@@ -325,7 +325,7 @@ TEST(appui_host_reads_privileges_and_describeconfirmation)
     RemoteHost host(toy.chain(), {}, s);
     auto code_of = [&](const char* json, const std::string& user) {
         UniValue r;
-        r.read(json);
+        CHECK(r.read(json));
         try {
             host.run(r, "", "", UniValue{}, user);
         } catch (const RpcError& e) {
@@ -335,7 +335,7 @@ TEST(appui_host_reads_privileges_and_describeconfirmation)
     };
     // A read of the pages' policy, by a user that may call it.
     UniValue r;
-    r.read(R"({"kind":"rpc","method":"getcount","params":[]})");
+    CHECK(r.read(R"({"kind":"rpc","method":"getcount","params":[]})"));
     CHECK_EQ(host.run(r, "", "", UniValue{}, "app")["result"].getInt<int>(), 3);
     // A method of the server not in the pages' policy: not found for the pages.
     CHECK_EQ(code_of(R"({"kind":"rpc","method":"notaread","params":[]})", "app"), int{HOST_METHOD_NOT_FOUND});
@@ -348,7 +348,7 @@ TEST(appui_host_reads_privileges_and_describeconfirmation)
     CHECK_EQ(code_of(R"({"kind":"host","method":"toy.pay","params":{"amount":"1"}})", "narrow"), int{HOST_NOT_ALLOWED});
     // describeconfirmation: the question, a token, the request to send; never run.
     UniValue params;
-    params.read(R"(["addr1", 5])");
+    CHECK(params.read(R"(["addr1", 5])"));
     const UniValue d{host.describe("send", params, "sender")};
     CHECK(d["needed"].isTrue());
     CHECK_EQ(toy.sent, 0);
@@ -382,7 +382,7 @@ TEST(appui_events_in_order_reset_and_wait)
     UniValue a{log.after(0, std::chrono::milliseconds{0})};
     CHECK_EQ(a["seq"].getInt<int>(), 1);
     UniValue batch;
-    batch.read(a["batches"][0].get_str());
+    CHECK(batch.read(a["batches"][0].get_str()));
     CHECK_EQ(batch.size(), size_t{2}); // the second tip replaced the first
     CHECK_EQ(batch[0]["data"].getInt<int>(), 2);
     // Nothing new: waits, then answers empty.
@@ -491,7 +491,7 @@ TEST(appui_node_state_and_events_hide_the_wallet_from_a_caller_without_the_walle
     RpcServer s(o);
     RemoteHost host(std::move(c), {}, s);
     UniValue r;
-    r.read(R"({"kind":"host","method":"node.state","params":{}})");
+    CHECK(r.read(R"({"kind":"host","method":"node.state","params":{}})"));
     CHECK(host.run(r, "", "", UniValue{}, "app")["result"].exists("balances"));
     const UniValue chain_only{host.run(r, "", "", UniValue{}, "chainonly")["result"]};
     CHECK(!chain_only.exists("balances"));
@@ -512,7 +512,7 @@ TEST(appui_node_state_and_events_hide_the_wallet_from_a_caller_without_the_walle
         std::string out;
         for (const UniValue& b : ev["batches"].getValues()) {
             UniValue list;
-            list.read(b.get_str());
+            CHECK(list.read(b.get_str()));
             for (const UniValue& e : list.getValues()) out += e["type"].get_str() + ";";
         }
         return out;
