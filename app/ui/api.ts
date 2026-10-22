@@ -41,6 +41,8 @@ export interface HistoryRow {
   ownAddress?: string;
   /** BitNames: the names it brought. */
   names?: string[];
+  /** BitNames: the name a reservation of the wallet commits to (only the wallet knows it). */
+  reservedName?: string;
   fee?: number;
   to: { address: string; amount: number }[];
   recipients: number;

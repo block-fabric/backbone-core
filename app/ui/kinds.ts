@@ -55,6 +55,9 @@ export function kindIcon(row: Pick<HistoryRow, 'kind'>): IconName {
 /** The other side of a row, for its line: who was paid, or the eCash address of a withdrawal. */
 export function counterparty(row: HistoryRow): string {
   if (row.kind === 'withdrawal' || row.kind === 'bundle') return row.mainAddress ?? row.m6id ?? '';
+  // A name's row: the name, in words when the wallet knows them.
+  if (row.names?.length) return row.names.join(', ');
+  if (row.reservedName) return row.reservedName;
   // What came in: the wallet's own address it came to.
   if (row.kind === 'receive' || row.kind === 'deposit' || row.kind === 'mined' || row.kind === 'self') return row.ownAddress ?? '';
   if (row.to.length === 1) return row.to[0].address;

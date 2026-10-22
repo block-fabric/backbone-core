@@ -42,7 +42,7 @@
   const columns: Column<HistoryRow>[] = $derived([
     { key: 'date', label: 'Date', value: (r) => (r.pending ? Number.MAX_SAFE_INTEGER : (r.time ?? 0)), width: '11rem' },
     { key: 'kind', label: 'Type', value: (r) => kindText(r), width: '12rem', words: true },
-    { key: 'other', label: 'Address', value: (r) => counterparty(r), width: 'minmax(8rem, 1fr)', mono: true },
+    { key: 'other', label: rows.some((r) => r.names?.length || r.reservedName) ? 'Address or name' : 'Address', value: (r) => counterparty(r), width: 'minmax(8rem, 1fr)', mono: true },
     { key: 'amount', label: `Amount (${unitInfo(prefs.unit).short})`, value: (r) => r.amount, width: '12rem', align: 'end' },
   ]);
 
@@ -97,6 +97,7 @@
         bind:sortKey
         bind:sortDir
         label={t('Activity')}
+        fit
         empty={drop.historyLoaded ? t('Nothing yet') : t('Reading…')}
         onactivate={(r) => (shown = r)}
       >
