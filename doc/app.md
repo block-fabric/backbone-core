@@ -167,6 +167,10 @@ How the unified wallet runs a drop-in chain:
   `--bt-app-rpc-port <p> --bt-app-rpcauth <its pack user> --bt-app-rpcwhitelist <pack user>:<protocol + reads +
   confirmed + host of pack.json> --bt-app-rpcwhitelistdefault=0 --bt-app-chooser <pack user> --bt-app-exit-with-stdin`;
   its supervisor uses the cookie for `getwalletphraseinfo`/`setwalletphrase`/`stop`.
+- The pack's `rpc.host` leaves out `dropin.seed.restore`: in the unified wallet a phrase is typed only in its own
+  window (then `setwalletphrase`), never in a page; the pages, embedded, offer no restore and say where it is.
+  `dropin.seed.create`/`.show`/`.save` stay: their words are only in the question, which the unified wallet shows in
+  its own trusted dialog (`describeconfirmation`), never in the page.
 - `HostPrivileges` of the unified wallet: each `rpc.host` method maps to what the table above says it exercises; a
   pack may call nothing outside its pack.json (`rpc.*`), and never `setwalletphrase`, `stop` or a LayerTwo spend by
   name (only through `rpc.confirmed`).

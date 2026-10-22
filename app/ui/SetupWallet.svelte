@@ -61,7 +61,7 @@
           {t('Your coins on %1 belong to a backup phrase: 12 words that are the only way to get them back. It is the same kind of phrase as LayerTwo’s %1 wallet uses, so either can restore the other.', CHAIN.name)}
         </p>
         {#if embedded}
-          <p class="note"><Icon name="info" size={14} /> {t('In the Backbone wallet, your one backup phrase makes this one for you (Settings → Backup phrase). Make or restore one here only for a wallet of its own.')}</p>
+          <p class="note"><Icon name="info" size={14} /> {t('In the Backbone wallet, your one backup phrase makes this one for you, and a phrase is restored there (Settings → Backup phrase), its words typed only in its own window. Make one here only for a wallet of its own.')}</p>
         {/if}
       </div>
     </div>
@@ -72,10 +72,13 @@
           <Icon name="plus" size={20} />
           <span><strong>{t('Make a new backup phrase')}</strong><small>{t('Shown once in the app’s own window, to write down on paper.')}</small></span>
         </button>
-        <button type="button" class="choice" disabled={busy} onclick={() => (mode = 'restore')}>
-          <Icon name="refresh" size={20} />
-          <span><strong>{t('Restore from my backup phrase')}</strong><small>{t('12 to 24 words, from this app or from LayerTwo’s wallet.')}</small></span>
-        </button>
+        {#if !embedded}
+          <!-- In the unified wallet a phrase is typed only in its own window (never in a page): restored there. -->
+          <button type="button" class="choice" disabled={busy} onclick={() => (mode = 'restore')}>
+            <Icon name="refresh" size={20} />
+            <span><strong>{t('Restore from my backup phrase')}</strong><small>{t('12 to 24 words, from this app or from LayerTwo’s wallet.')}</small></span>
+          </button>
+        {/if}
       </div>
     {:else}
       <form
