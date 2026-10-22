@@ -121,12 +121,21 @@ inline bool ban_active(const std::map<std::string, int64_t>& banned, const std::
  *  even counts twice towards the fee) and their mempool keeps it; every block that carries it fails
  *  the block's sort-and-scan double-spend check (state/block.rs prevalidate: UtxoDoubleSpent). Our
  *  mempool, relay and templates refuse it; blocks are judged by the consensus check alone. */
+/** An input's 37-byte outpoint key: inputs are OutPoints, or (OutPoint, utxo hash) pairs in the
+ *  Utreexo chains that use this node (Coinshift). */
+inline std::array<uint8_t, 37> input_key(const OutPoint& o) { return o.key(); }
+template <class H>
+std::array<uint8_t, 37> input_key(const std::pair<OutPoint, H>& p)
+{
+    return p.first.key();
+}
+
 template <class Tx>
 bool spends_an_outpoint_twice(const Tx& tx)
 {
     std::set<std::array<uint8_t, 37>> seen;
     for (auto& op : tx.inputs)
-        if (!seen.insert(op.key()).second) return true;
+        if (!seen.insert(input_key(op)).second) return true;
     return false;
 }
 
@@ -545,7 +554,7 @@ public:
         for (auto& tx : take) {
             bool conflict = spends_an_outpoint_twice(tx.transaction);
             for (auto& op : tx.transaction.inputs)
-                if (spent.count(op.key())) conflict = true;
+                if (spent.count(input_key(op))) conflict = true;
             Hash32 txid = tx.transaction.txid();
             if (conflict || confirmed_on_active_chain(t, txid)) {
                 mempool_delete(txid);
@@ -567,7 +576,7 @@ public:
             auto ft = state_.fill_spent(t, tx.transaction);
             if (fee + f < fee) break;
             fee += f;
-            for (auto& op : tx.transaction.inputs) spent.insert(op.key());
+            for (auto& op : tx.transaction.inputs) spent.insert(input_key(op));
             r.emplace_back(tx, ft);
         }
         return {r, fee};
@@ -581,7 +590,9 @@ public:
             BT_NODE_LOCKED;
             Hash32 txid = tx.transaction.txid();
             if (spends_an_outpoint_twice(tx.transaction)) throw StateError("UtxoDoubleSpent (an input repeated inside the transaction)");
-            state_.validate_transaction(t, tx);
+            prepare_tx(t, stored);
+            state_.validate_transaction(t, stored);
+            policy_tx(t, stored);
             if (confirmed_on_active_chain(t, txid)) throw StateError("transaction already confirmed (replay refused by policy)");
             auto it = mempool_.find(txid);
             if (it == mempool_.end()) mempool_put(tx);
@@ -926,13 +937,24 @@ private:
         cached_height_ = h;
     }
 
+    /** Optional chain hooks: prepare (e.g. regenerate a Utreexo proof against the tip) and a
+     *  policy check run on the broadcast/P2P paths only. */
+    void prepare_tx(const Txn& t, AuthorizedTransaction& tx)
+    {
+        if constexpr (requires(const State& s, const Txn& tt, AuthorizedTransaction& a) { s.prepare_tx(tt, a); }) state_.prepare_tx(t, tx);
+    }
+    void policy_tx(const Txn& t, const AuthorizedTransaction& tx)
+    {
+        if constexpr (requires(const State& s, const Txn& tt, const AuthorizedTransaction& a) { s.policy_check(tt, a); }) state_.policy_check(t, tx);
+    }
+
     void mempool_put(const AuthorizedTransaction& tx)
     {
         if (spends_an_outpoint_twice(tx.transaction)) throw StateError("UtxoDoubleSpent (an input repeated inside the transaction)");
         Hash32 txid = tx.transaction.txid();
         for (auto& op : tx.transaction.inputs)
-            if (mempool_spent_.count(op.key())) throw StateError("UtxoDoubleSpent");
-        for (auto& op : tx.transaction.inputs) mempool_spent_[op.key()] = txid;
+            if (mempool_spent_.count(input_key(op))) throw StateError("UtxoDoubleSpent");
+        for (auto& op : tx.transaction.inputs) mempool_spent_[input_key(op)] = txid;
         mempool_[txid] = tx;
         mempool_size_ = mempool_.size();
     }
@@ -944,7 +966,7 @@ private:
             q.pop_front();
             auto it = mempool_.find(id);
             if (it == mempool_.end()) continue;
-            for (auto& op : it->second.transaction.inputs) mempool_spent_.erase(op.key());
+            for (auto& op : it->second.transaction.inputs) mempool_spent_.erase(input_key(op));
             size_t nout = it->second.transaction.outputs.size();
             mempool_.erase(it);
             mempool_size_ = mempool_.size();
@@ -1111,9 +1133,17 @@ private:
         auto tb = archive_.body(t, *tip_hash);
         if (!tb) throw StateError("missing body for the tip", true);
         uint32_t height = *state_.height(t);
+        // Rows applied by an earlier block: `applied < height`; a chain may instead reproduce
+        // `applied < height - 1` (wrapping u32), see C::DISCONNECT_WINDOW_SKIPS_PARENT.
+        auto applied_below = [](uint32_t applied, uint32_t h) {
+            if constexpr (requires { C::DISCONNECT_WINDOW_SKIPS_PARENT; }) {
+                if (C::DISCONNECT_WINDOW_SKIPS_PARENT) return applied < uint32_t(h - 1);
+            }
+            return applied < h;
+        };
         auto last_applied = [&](const std::vector<std::pair<uint32_t, std::pair<Hash32, uint32_t>>>& rows) -> std::optional<std::pair<Hash32, uint32_t>> {
             for (auto it = rows.rbegin(); it != rows.rend(); ++it) // rev_iter in key (memcmp) order
-                if (it->second.second < height) return it->second;
+                if (applied_below(it->second.second, height)) return it->second;
             return std::nullopt;
         };
         auto dep = last_applied(state_.deposit_blocks(t));
@@ -1427,7 +1457,9 @@ private:
             try {
                 BT_NODE_LOCKED;
                 if (spends_an_outpoint_twice(q.tx.transaction)) throw StateError("UtxoDoubleSpent");
+                prepare_tx(t, q.tx);
                 state_.validate_transaction(t, q.tx);
+                policy_tx(t, q.tx);
             } catch (const std::exception&) {
                 ok = false;
             }
