@@ -1583,7 +1583,12 @@ private:
                 std::string why;
                 if (r && r->kind == P2PT::Response::Block && C::hash(r->header) == want) {
                     BT_NODE_LOCKED;
-                    if (!archive_.body(t, want)) {
+                    if (archive_.body(t, want)) {
+                        // Another connection of the same peer stored it first: still progress (the next round
+                        // asks only for what is still missing, so this cannot loop; two connections between two
+                        // nodes must not cut each other).
+                        ++*stored;
+                    } else {
                         why = check_peer_body_(t, want, r->body);
                         if (why.empty()) {
                             try {
