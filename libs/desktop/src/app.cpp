@@ -485,7 +485,7 @@ bool App::StartNode(std::string& err)
         err = "No free port for the node's app RPC";
         return false;
     }
-    std::vector<std::string> args{"--datadir", s.datadir, "--network", s.network, "--mainchain-grpc-url", s.mainchain_url,
+    std::vector<std::string> args{"--datadir", s.datadir, "--network", s.network, m_spec.mainchain_url_flag, s.mainchain_url,
                                   "--rpc-addr", strprintf("127.0.0.1:%u", s.rpc_port), "--private-rpc-addr", strprintf("127.0.0.1:%u", s.rpc_port),
                                   "--net-addr", strprintf("0.0.0.0:%u", s.p2p_port), "--headless", "--log-level", "INFO",
                                   "--bt-app-rpc-port", strprintf("%u", app_port), "--bt-app-rpcauth", bt::appui::format_rpcauth(auth),

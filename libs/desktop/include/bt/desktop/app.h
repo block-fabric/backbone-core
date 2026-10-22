@@ -29,6 +29,8 @@ struct ChainSpec {
     /** The node's default LayerTwo RPC and P2P ports. */
     uint16_t rpc_port{0}, p2p_port{0};
     std::string default_mainchain_url{"http://localhost:50051"};
+    /** The node's flag of the mainchain interface's URL (Thunder --mainchain-grpc-url, BitNames --bt-mainchain-grpc-url). */
+    std::string mainchain_url_flag{"--mainchain-grpc-url"};
     /** The node's default data directory (LayerTwo's: <data_dir>/<stem>). */
     std::string default_datadir;
     /** What the app's user may call at the node: the chain's manifest (reads, confirmed and host methods, protocol). */

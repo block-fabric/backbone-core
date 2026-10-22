@@ -130,13 +130,20 @@ function(bt_desktop_app target)
     string(JSON nm GET "${manifest}" networks ${i})
     string(APPEND nets "\"${nm}\", ")
   endforeach()
+  string(JSON url_flag ERROR_VARIABLE no_flag GET "${manifest}" mainchainUrlFlag)
+  if(no_flag)
+    set(url_flag "--mainchain-grpc-url")
+  endif()
+  if(NOT url_flag MATCHES "^--[a-z-]+$")
+    message(FATAL_ERROR "${A_MANIFEST}: mainchainUrlFlag is a long option")
+  endif()
   string(JSON rpc_port GET "${manifest}" rpcPort)
   string(JSON p2p_port GET "${manifest}" p2pPort)
   file(WRITE "${gen}/app_manifest.h.new"
        "// Made from ${A_MANIFEST} by core/cmake/BtDesktopApp.cmake.\n#pragma once\n#include <string>\n#include <vector>\n"
        "namespace app_manifest {\ninline const std::vector<std::string> WHITELIST{${whitelist}};\ninline const std::vector<std::string> HOST{${host_methods}};\n"
        "inline const std::vector<std::string> NETWORKS{${nets}};\ninline constexpr unsigned RPC_PORT{${rpc_port}};\ninline constexpr unsigned P2P_PORT{${p2p_port}};\n"
-       "inline constexpr const char* NAME{\"${A_NAME}\"};\ninline constexpr const char* STEM{\"${A_STEM}\"};\ninline constexpr const char* VERSION{\"${A_VERSION}\"};\n}\n")
+       "inline constexpr const char* MAINCHAIN_URL_FLAG{\"${url_flag}\"};\ninline constexpr const char* NAME{\"${A_NAME}\"};\ninline constexpr const char* STEM{\"${A_STEM}\"};\ninline constexpr const char* VERSION{\"${A_VERSION}\"};\n}\n")
   file(COPY_FILE "${gen}/app_manifest.h.new" "${gen}/app_manifest.h" ONLY_IF_DIFFERENT)
 
   # ---- the interface: the kit, the drop-in pages, the chain's layer; built with npm, embedded
