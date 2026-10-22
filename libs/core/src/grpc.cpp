@@ -101,7 +101,11 @@ struct Channel::Conn {
                 w = SSL_write(ssl, d, int(n));
                 if (w <= 0) return false;
             } else {
+                #ifdef MSG_NOSIGNAL
+                w = int(::send(fd, (const char*)d, n, MSG_NOSIGNAL)); // a closed peer must not SIGPIPE the node
+#else
                 w = int(::send(fd, (const char*)d, n, 0));
+#endif
                 if (w <= 0) return false;
             }
             d += w;
