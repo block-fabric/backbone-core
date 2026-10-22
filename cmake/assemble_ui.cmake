@@ -1,0 +1,68 @@
+# The interface of a drop-in app (BtDesktopApp.cmake): the template's kit at the pinned commit, the drop-in pages of
+# core/app/ui in src/chain/dropin, the chain's own layer over src/chain; then npm: the app's interface (OUT) or, with
+# PACK=ON, a pack of the pages for the unified wallet (OUT/pack.json gets the manifest's methods).
+#   cmake -DKIT=<kit> -DKIT_REPO=<template repo> -DDROPIN=<core/app/ui> -DCHAIN=<app/chain> -DUI=<work> -DOUT=<dir>
+#         -DNPM=<npm> -DMANIFEST=<manifest.json> -DCOMMIT=<kit commit> [-DPACK=ON] -P assemble_ui.cmake
+foreach(var KIT DROPIN CHAIN UI OUT NPM MANIFEST COMMIT)
+  if(NOT ${var})
+    message(FATAL_ERROR "assemble_ui.cmake needs ${var}")
+  endif()
+endforeach()
+
+set(app "${UI}/src/webui/app")
+# The kit's files anew (a file the chain layer dropped since must not stay), its packages kept between builds.
+if(EXISTS "${app}/src")
+  file(REMOVE_RECURSE "${app}/src" "${app}/public" "${app}/scripts")
+endif()
+file(MAKE_DIRECTORY "${UI}/src/webui")
+file(COPY "${KIT}/src/webui/app" DESTINATION "${UI}/src/webui" PATTERN "node_modules" EXCLUDE PATTERN "dist" EXCLUDE)
+file(COPY "${KIT}/src/webui/locale" DESTINATION "${UI}/src/webui")
+file(MAKE_DIRECTORY "${app}/src/chain/dropin")
+file(COPY "${DROPIN}/" DESTINATION "${app}/src/chain/dropin")
+file(COPY "${CHAIN}/" DESTINATION "${app}/src/chain")
+# The chain's manifest beside its pages: the drop-in tests check the pages call nothing outside it.
+file(COPY_FILE "${MANIFEST}" "${app}/src/chain/manifest.json")
+
+# The packages: the template's own when its lock file is the pinned one's (no download), else npm ci.
+set(stamp "${app}/node_modules/.package-lock.json")
+if(KIT_REPO AND EXISTS "${KIT_REPO}/src/webui/app/node_modules/.package-lock.json" AND NOT EXISTS "${app}/node_modules")
+  file(READ "${KIT_REPO}/src/webui/app/package-lock.json" theirs)
+  file(READ "${app}/package-lock.json" ours)
+  if(theirs STREQUAL ours)
+    file(CREATE_LINK "${KIT_REPO}/src/webui/app/node_modules" "${app}/node_modules" SYMBOLIC)
+  endif()
+endif()
+if(NOT EXISTS "${stamp}")
+  message(STATUS "Installing the packages of the interface (npm ci)")
+  execute_process(COMMAND "${NPM}" ci --no-audit --no-fund --prefer-offline WORKING_DIRECTORY "${app}" RESULT_VARIABLE result)
+  if(NOT result EQUAL 0)
+    message(FATAL_ERROR "npm ci failed (${result}): the first build needs the npm registry, or a filled npm cache")
+  endif()
+endif()
+
+if(PACK)
+  execute_process(COMMAND "${NPM}" run --silent pack -- --outDir "${OUT}" --commit "${COMMIT}" WORKING_DIRECTORY "${app}" RESULT_VARIABLE result)
+  if(NOT result EQUAL 0)
+    message(FATAL_ERROR "The pack failed (${result})")
+  endif()
+  # What the pages use of the node (the unified wallet names it in the app's whitelist at the node): the manifest.
+  file(READ "${OUT}/pack.json" pack)
+  file(READ "${MANIFEST}" manifest)
+  string(JSON pack SET "${pack}" rpc "{}")
+  string(JSON reads GET "${manifest}" reads)
+  string(JSON confirmed GET "${manifest}" confirmed)
+  string(JSON host GET "${manifest}" host)
+  string(JSON protocol GET "${manifest}" protocol)
+  string(JSON pack SET "${pack}" rpc reads "${reads}")
+  string(JSON pack SET "${pack}" rpc confirmed "${confirmed}")
+  string(JSON pack SET "${pack}" rpc host "${host}")
+  string(JSON pack SET "${pack}" rpc protocol "${protocol}")
+  string(JSON pack SET "${pack}" dropin "true")
+  string(JSON pack SET "${pack}" kit "\"${COMMIT}\"")
+  file(WRITE "${OUT}/pack.json" "${pack}\n")
+else()
+  execute_process(COMMAND "${NPM}" run --silent build -- --outDir "${OUT}" --emptyOutDir WORKING_DIRECTORY "${app}" RESULT_VARIABLE result)
+  if(NOT result EQUAL 0)
+    message(FATAL_ERROR "The build of the interface failed (${result})")
+  endif()
+endif()
