@@ -139,11 +139,29 @@ function(bt_desktop_app target)
   endif()
   string(JSON rpc_port GET "${manifest}" rpcPort)
   string(JSON p2p_port GET "${manifest}" p2pPort)
+  # The node's program when it is not the stem (zSide's thunder-orchard), LayerTwo's data folder name, how the node
+  # takes its RPC addresses ("addr": --rpc-addr host:port; "host-port": --rpc-host and --rpc-port).
+  string(JSON program ERROR_VARIABLE no_program GET "${manifest}" program)
+  if(no_program)
+    set(program "${A_STEM}")
+  endif()
+  string(JSON datadir_name ERROR_VARIABLE no_datadir_name GET "${manifest}" datadirName)
+  if(no_datadir_name)
+    set(datadir_name "${A_STEM}")
+  endif()
+  string(JSON address_flags ERROR_VARIABLE no_address_flags GET "${manifest}" addressFlags)
+  if(no_address_flags)
+    set(address_flags "addr")
+  endif()
+  if(NOT program MATCHES "^[A-Za-z0-9_-]+$" OR NOT datadir_name MATCHES "^[A-Za-z0-9_.-]+$" OR NOT address_flags MATCHES "^(addr|host-port)$")
+    message(FATAL_ERROR "${A_MANIFEST}: program, datadirName (names) or addressFlags (addr or host-port) is not right")
+  endif()
   file(WRITE "${gen}/app_manifest.h.new"
        "// Made from ${A_MANIFEST} by core/cmake/BtDesktopApp.cmake.\n#pragma once\n#include <string>\n#include <vector>\n"
        "namespace app_manifest {\ninline const std::vector<std::string> WHITELIST{${whitelist}};\ninline const std::vector<std::string> HOST{${host_methods}};\n"
        "inline const std::vector<std::string> NETWORKS{${nets}};\ninline constexpr unsigned RPC_PORT{${rpc_port}};\ninline constexpr unsigned P2P_PORT{${p2p_port}};\n"
-       "inline constexpr const char* MAINCHAIN_URL_FLAG{\"${url_flag}\"};\ninline constexpr const char* NAME{\"${A_NAME}\"};\ninline constexpr const char* STEM{\"${A_STEM}\"};\ninline constexpr const char* VERSION{\"${A_VERSION}\"};\n}\n")
+       "inline constexpr const char* MAINCHAIN_URL_FLAG{\"${url_flag}\"};\ninline constexpr const char* PROGRAM{\"${program}\"};\n"
+       "inline constexpr const char* DATADIR_NAME{\"${datadir_name}\"};\ninline constexpr const char* ADDRESS_FLAGS{\"${address_flags}\"};\ninline constexpr const char* NAME{\"${A_NAME}\"};\ninline constexpr const char* STEM{\"${A_STEM}\"};\ninline constexpr const char* VERSION{\"${A_VERSION}\"};\n}\n")
   file(COPY_FILE "${gen}/app_manifest.h.new" "${gen}/app_manifest.h" ONLY_IF_DIFFERENT)
 
   # ---- the interface: the kit, the drop-in pages, the chain's layer; built with npm, embedded

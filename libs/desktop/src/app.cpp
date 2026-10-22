@@ -217,6 +217,12 @@ private:
     };
     NodeSettings Settings();
     UniValue SettingsJson();
+    /** LayerTwo's data directory of the node: the spec's, or <data_dir>/<datadir_name or stem>. */
+    std::string DefaultNodeDatadir() const
+    {
+        if (!m_spec.default_datadir.empty()) return m_spec.default_datadir;
+        return DefaultDatadir(m_spec.datadir_name.empty() ? m_spec.stem : m_spec.datadir_name);
+    }
     void NodeThread();
     bool StartNode(std::string& err);
     void StopNode();
@@ -328,7 +334,7 @@ App::NodeSettings App::Settings()
     s.network = pick("network", "network", m_spec.networks.empty() ? std::string{"betanet"} : m_spec.networks.front());
     if (std::find(m_spec.networks.begin(), m_spec.networks.end(), s.network) == m_spec.networks.end()) s.network = m_spec.networks.front();
     s.mainchain_url = pick("mainchain-grpc-url", "mainchainUrl", m_spec.default_mainchain_url);
-    s.datadir = pick("datadir", "datadir", m_spec.default_datadir.empty() ? DefaultDatadir(m_spec.stem) : m_spec.default_datadir);
+    s.datadir = pick("datadir", "datadir", DefaultNodeDatadir());
     auto port = [&](const std::string& arg, const std::string& key, uint16_t fallback) -> uint16_t {
         std::string v{m_args.get(arg)};
         if (v.empty() && Param(saved, key).isNum()) return static_cast<uint16_t>(Param(saved, key).getInt<int>());
@@ -356,7 +362,7 @@ UniValue App::SettingsJson()
     o.pushKV("mainchainUrl", s.mainchain_url);
     o.pushKV("defaultMainchainUrl", m_spec.default_mainchain_url);
     o.pushKV("datadir", s.datadir);
-    o.pushKV("defaultDatadir", m_spec.default_datadir.empty() ? DefaultDatadir(m_spec.stem) : m_spec.default_datadir);
+    o.pushKV("defaultDatadir", DefaultNodeDatadir());
     o.pushKV("rpcPort", s.rpc_port);
     o.pushKV("p2pPort", s.p2p_port);
     UniValue peers{UniValue::VARR};
@@ -520,7 +526,7 @@ UniValue App::NodeRequest(const std::string& kind, const std::string& method, co
 bool App::StartNode(std::string& err)
 {
     const NodeSettings s{Settings()};
-    const std::string program{m_args.get("node", program_dir() + "/" + m_spec.stem
+    const std::string program{m_args.get("node", program_dir() + "/" + (m_spec.program.empty() ? m_spec.stem : m_spec.program)
 #ifdef _WIN32
                                                    + ".exe"
 #endif
@@ -542,11 +548,17 @@ bool App::StartNode(std::string& err)
         err = "No free port for the node's app RPC";
         return false;
     }
-    std::vector<std::string> args{"--datadir", s.datadir, "--network", s.network, m_spec.mainchain_url_flag, s.mainchain_url,
-                                  "--rpc-addr", strprintf("127.0.0.1:%u", s.rpc_port), "--private-rpc-addr", strprintf("127.0.0.1:%u", s.rpc_port),
-                                  "--net-addr", strprintf("0.0.0.0:%u", s.p2p_port), "--headless", "--log-level", "INFO",
-                                  "--bt-app-rpc-port", strprintf("%u", app_port), "--bt-app-rpcauth", bt::appui::format_rpcauth(auth),
-                                  "--bt-app-rpcwhitelist", whitelist, "--bt-app-rpcwhitelistdefault=0", "--bt-app-chooser", user, "--bt-app-exit-with-stdin"};
+    std::vector<std::string> args{"--datadir", s.datadir, "--network", s.network, m_spec.mainchain_url_flag, s.mainchain_url};
+    // The LayerTwo RPC on loopback, as LayerTwo's node takes it (the public and the private server on one port).
+    if (m_spec.address_flags == "host-port") {
+        args.insert(args.end(), {"--rpc-host", "127.0.0.1", "--rpc-port", strprintf("%u", s.rpc_port), "--private-rpc-host", "127.0.0.1",
+                                 "--private-rpc-port", strprintf("%u", s.rpc_port)});
+    } else {
+        args.insert(args.end(), {"--rpc-addr", strprintf("127.0.0.1:%u", s.rpc_port), "--private-rpc-addr", strprintf("127.0.0.1:%u", s.rpc_port)});
+    }
+    args.insert(args.end(), {"--net-addr", strprintf("0.0.0.0:%u", s.p2p_port), "--headless", "--log-level", "INFO",
+                             "--bt-app-rpc-port", strprintf("%u", app_port), "--bt-app-rpcauth", bt::appui::format_rpcauth(auth),
+                             "--bt-app-rpcwhitelist", whitelist, "--bt-app-rpcwhitelistdefault=0", "--bt-app-chooser", user, "--bt-app-exit-with-stdin"});
     for (const auto& p : s.peers) {
         args.push_back("--add-peer");
         args.push_back(p);

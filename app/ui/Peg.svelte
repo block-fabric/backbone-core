@@ -18,6 +18,7 @@
   import AddressField from './AddressField.svelte';
   import SetupWallet from './SetupWallet.svelte';
   import { confirmed, dropin, sats, satsNumber, type PegInfo, type Withdrawal } from './api';
+  import { SPEND } from './spend';
   import { linkState, linkText } from './link';
   import { drop, follow, refresh } from './store.svelte';
 
@@ -65,7 +66,7 @@
     depBusy = true;
     depError = '';
     try {
-      const txid = await confirmed<string>('create_deposit', [depositTo.address, satsNumber(depAmount), satsNumber(depFee)]);
+      const txid = await confirmed<string>(SPEND.deposit, [depositTo.address, satsNumber(depAmount), satsNumber(depFee)]);
       toast('success', t('Deposit sent on eCash'), t('eCash transaction %1: credited on %2 in the first block after eCash mines it.', shortHash(txid, 10), CHAIN.name));
       depAmount = null;
       await refresh();
@@ -92,7 +93,7 @@
     wBusy = true;
     wError = '';
     try {
-      await confirmed<string>('create_withdrawal', [wTo.trim(), satsNumber(wAmount), satsNumber(wFee), satsNumber(wMainFee)]);
+      await confirmed<string>(SPEND.withdraw, [wTo.trim(), satsNumber(wAmount), satsNumber(wFee), satsNumber(wMainFee)]);
       toast('success', t('Withdrawal asked'), t('It joins the next withdrawal bundle; eCash pays it once the bundle is accepted.'));
       wAmount = null;
       wTo = '';

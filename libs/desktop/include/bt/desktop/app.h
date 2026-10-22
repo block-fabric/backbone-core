@@ -23,6 +23,8 @@ namespace bt::desktop {
 struct ChainSpec {
     /** Thunder; thunder (the stem of the programs: <stem>, <stem>-app). */
     std::string name, stem;
+    /** The node's program when it is not <stem> (zSide's thunder-orchard, Hivemind's truthcoin): LayerTwo's name. */
+    std::string program;
     std::string version;
     /** The node's networks (LayerTwo's names), the default first. */
     std::vector<std::string> networks;
@@ -33,6 +35,12 @@ struct ChainSpec {
     std::string mainchain_url_flag{"--mainchain-grpc-url"};
     /** The node's default data directory (LayerTwo's: <data_dir>/<stem>). */
     std::string default_datadir;
+    /** The folder name of LayerTwo's data directory (<data_dir>/<name>: plain_bitassets, truthcoin_dc...), when
+     *  default_datadir is not given; empty: the stem. */
+    std::string datadir_name;
+    /** How the node takes its addresses: "addr" (--rpc-addr/--private-rpc-addr host:port, Thunder's) or "host-port"
+     *  (--rpc-host/--rpc-port and --private-rpc-host/--private-rpc-port, plain-bitassets'). --net-addr in both. */
+    std::string address_flags{"addr"};
     /** What the app's user may call at the node: the chain's manifest (reads, confirmed and host methods, protocol). */
     std::vector<std::string> whitelist;
     /** The host methods of the node the pages call (forwarded; any other host method is the app's or refused). */

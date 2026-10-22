@@ -1,6 +1,6 @@
 <script lang="ts">
   // Send: one payment on this chain, from the wallet's available coins, with the fee the user sets (these chains take a
-  // fee in satoshis, not a rate). Asked in the app's trusted dialog (create_transfer, rpc.confirmed), never sent from here.
+  // fee in satoshis, not a rate). Asked in the app's trusted dialog (create_transfer or the chain's name, spend.ts; rpc.confirmed), never sent from here.
   import Amount from '../../components/Amount.svelte';
   import AmountInput from '../../components/AmountInput.svelte';
   import Icon from '../../components/Icon.svelte';
@@ -13,6 +13,7 @@
   import AddressField from './AddressField.svelte';
   import SetupWallet from './SetupWallet.svelte';
   import { confirmed, sats, satsNumber } from './api';
+  import { SPEND } from './spend';
   import { drop, follow, refresh } from './store.svelte';
 
   $effect(() => follow());
@@ -42,7 +43,7 @@
     busy = true;
     error = '';
     try {
-      const txid = await confirmed<string>('create_transfer', [to.trim(), satsNumber(amount), satsNumber(fee)]);
+      const txid = await confirmed<string>(SPEND.transfer, [to.trim(), satsNumber(amount), satsNumber(fee)]);
       last = { txid, amount, to: to.trim() };
       toast('success', t('Sent'), t('The payment confirms with the next block of %1.', CHAIN.name));
       to = '';

@@ -31,9 +31,26 @@ from dropin_regtest import JsonRpc, Mainchain, Procs, bmm_block, wait_for
 HERE = Path(__file__).resolve().parent
 
 
+def addr_flags(rpc: int, p2p: int) -> list:
+    """Thunder's way of giving a node its addresses (-r/-p host:port, -n host:port)."""
+    return ["-r", f"127.0.0.1:{rpc}", "-p", f"127.0.0.1:{rpc}", "-n", f"127.0.0.1:{p2p}"]
+
+
+def host_port_flags(rpc: int, p2p: int) -> list:
+    """plain-bitassets' way (--rpc-host/--rpc-port, the private server on the same port, -n host:port)."""
+    return ["--rpc-host", "127.0.0.1", "--rpc-port", str(rpc), "--private-rpc-host", "127.0.0.1", "--private-rpc-port", str(rpc), "-n", f"127.0.0.1:{p2p}"]
+
+
+def thunder_reads(a: JsonRpc, addrs: list) -> list:
+    """The reads with A's addresses and tip that Thunder's family shares."""
+    tip = a.get_best_sidechain_block_hash()
+    return [("get_utxos", [addrs]), ("get_stxos", [addrs]), ("get_block_hash", [1]), ("format_deposit_address", [addrs[0]]), ("get_block", [tip]),
+            ("get_bmm_inclusions", [tip])]
+
+
 @dataclass
 class Chain:
-    stem: str                  # thunder: the node's binary; <stem>-app the app's
+    stem: str                  # thunder: <stem>-app the app's program (and the node's, unless `program`)
     title: str                 # Thunder: the slot's title, app.info's name
     slot: int
     script: Path               # the chain's page script (joined after common.js)
@@ -44,6 +61,18 @@ class Chain:
     on_signal: Callable[[str, "Run"], list] | None = None
     # Reads with A's own addresses or its tip: [(method, params)] from (a, addresses).
     more_reads: Callable[[JsonRpc, list], list] | None = None
+    # The node's program when it is not the stem (zSide: thunder-orchard; Hivemind: truthcoin).
+    program: str | None = None
+    datadir_flag: str = "-d"
+    # The node's addresses as its flags: (rpc port, p2p port) -> arguments.
+    addresses: Callable[[int, int], list] = addr_flags
+    # Node B, the other side: its wallet set up, the address A pays; what it has to pay with; a payment of it to A.
+    peer_setup: Callable[[JsonRpc], str] = lambda b: (b.set_seed_from_mnemonic(b.generate_mnemonic()), b.get_new_address())[1]  # noqa: E731
+    peer_available: Callable[[JsonRpc], int] = lambda b: b.balance()["available_sats"]  # noqa: E731
+    peer_pay: Callable[[JsonRpc, str, int], str] = lambda b, to, sats: b.create_transfer(to, sats, 1000)  # noqa: E731
+    # A's wallet addresses (the reads below take them), and the reads with them and its tip.
+    wallet_addresses: Callable[[JsonRpc], list] = lambda a: a.get_wallet_addresses()  # noqa: E731
+    base_reads: Callable[[JsonRpc, list], list] = thunder_reads
 
 
 @dataclass
@@ -74,7 +103,7 @@ def main(chain: Chain, argv=None):
     main_chain = Mainchain(procs, args.backboned, base / "backbone", P + 10, P + 11, P + 13)
     failures = []
     stop_miner = threading.Event()
-    node = args.bin / chain.stem
+    node = args.bin / (chain.program or chain.stem)
     try:
         print(f"== mainchain: backboned regtest, slot {chain.slot}", flush=True)
         main_chain.start()
@@ -82,13 +111,11 @@ def main(chain: Chain, argv=None):
         grpc_url = f"http://127.0.0.1:{P + 13}"
 
         print("== node B (the other side)", flush=True)
-        procs.spawn(f"{chain.stem}B", [node, "--network", "regtest", "-d", base / "B", chain.url_flag, grpc_url, "-r", f"127.0.0.1:{P + 25}",
-                                       "-p", f"127.0.0.1:{P + 25}", "-n", f"127.0.0.1:{P + 26}", "--bt-no-seeds", "--add-peer", f"127.0.0.1:{P + 21}",
-                                       "--log-level", "INFO"] + chain.node_args)
+        procs.spawn(f"{chain.stem}B", [node, "--network", "regtest", chain.datadir_flag, base / "B", chain.url_flag, grpc_url] + chain.addresses(P + 25, P + 26) +
+                    ["--bt-no-seeds", "--add-peer", f"127.0.0.1:{P + 21}", "--log-level", "INFO"] + chain.node_args)
         b = JsonRpc(P + 25, version="2.0")
         wait_for(lambda: b.getblockcount() is not None, "node B", 60)
-        b.set_seed_from_mnemonic(b.generate_mnemonic())
-        peer_address = b.get_new_address()
+        peer_address = chain.peer_setup(b)
 
         print(f"== {chain.stem}-app (node A) in a virtual display", flush=True)
         main_address = main_chain.wallet.getnewaddress()
@@ -137,8 +164,8 @@ def main(chain: Chain, argv=None):
                     print("  " + msg, flush=True)
                     if msg.startswith("SIGNAL receive-address "):
                         to = msg.split()[-1]
-                        wait_for(lambda: b.balance()["available_sats"] >= 50_000_000, "B's coins", 300, 1)
-                        txid = b.create_transfer(to, 25_000_000, 1000)
+                        wait_for(lambda: chain.peer_available(b) >= 50_000_000, "B's coins", 300, 1)
+                        txid = chain.peer_pay(b, to, 25_000_000)
                         print(f"  B pays 0.25 ECX to A: {txid}", flush=True)
                     elif msg.startswith("SIGNAL ") and chain.on_signal:
                         failures.extend(chain.on_signal(msg[len("SIGNAL "):], run))
@@ -176,12 +203,11 @@ def main(chain: Chain, argv=None):
         replies = {}
         for mode in ("plain", "app"):
             extra = [] if mode == "plain" else ["--bt-app-rpc-port", str(P + 22)]
-            procs.spawn(f"{chain.stem}A-{mode}", [node, "--network", "regtest", "-d", base / "A", chain.url_flag, grpc_url, "-r", f"127.0.0.1:{P + 20}",
-                                                  "-p", f"127.0.0.1:{P + 20}", "-n", f"127.0.0.1:{P + 21}", "--bt-no-seeds", "--bt-no-p2p"] + chain.node_args + extra)
+            procs.spawn(f"{chain.stem}A-{mode}", [node, "--network", "regtest", chain.datadir_flag, base / "A", chain.url_flag, grpc_url] +
+                        chain.addresses(P + 20, P + 21) + ["--bt-no-seeds", "--bt-no-p2p"] + chain.node_args + extra)
             wait_for(lambda: a.getblockcount() is not None, f"A ({mode})", 60)
-            addrs = a.get_wallet_addresses()
-            calls = chain.reads + [("get_utxos", [addrs]), ("get_stxos", [addrs]), ("get_block_hash", [1]), ("format_deposit_address", [addrs[0]]),
-                                   ("get_block", [a.get_best_sidechain_block_hash()]), ("get_bmm_inclusions", [a.get_best_sidechain_block_hash()])]
+            addrs = chain.wallet_addresses(a)
+            calls = chain.reads + chain.base_reads(a, addrs)
             if chain.more_reads:
                 calls += chain.more_reads(a, addrs)
             replies[mode] = {f"{m} {json.dumps(p)}": a.raw(m, p) for m, p in calls}

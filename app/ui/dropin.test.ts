@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { setTransport, type BridgeRequest } from '../../lib/bridge';
+import { SPEND } from './spend';
 
 const manifest = JSON.parse(readFileSync(join(__dirname, '..', 'manifest.json'), 'utf8')) as { reads: string[]; confirmed: string[]; host: string[] };
 /** What the app answers itself (bt/desktop app.cpp) or the template's kit asks of every host. */
@@ -65,7 +66,7 @@ describe('the drop-in pages', () => {
     expect(calls.some((c) => c.method === 'wallet.transactions' || c.method === 'getwalletinfo')).toBe(false);
   });
 
-  it('send: an address the node checked, an amount, then create_transfer [dest, value, fee] through rpc.confirmed only', async () => {
+  it('send: an address the node checked, an amount, then the chain’s transfer (create_transfer) [dest, value, fee] through rpc.confirmed only', async () => {
     const { refresh } = await import('./store.svelte');
     await refresh();
     const Send = (await import('./Send.svelte')).default;
@@ -79,7 +80,7 @@ describe('the drop-in pages', () => {
     await fireEvent.click(submit);
     await waitFor(() => expect(hostCalls('rpc.confirmed').length).toBe(1));
     const params = hostCalls('rpc.confirmed')[0].params as { method: string; params: unknown[] };
-    expect(params.method).toBe('create_transfer');
+    expect(params.method).toBe(SPEND.transfer);
     expect(params.params).toEqual(['4XrMw8bmnhchFspSyP4XRUuB5vaR', 50_000_000, 1000]);
   });
 
@@ -97,7 +98,7 @@ describe('the drop-in pages', () => {
     expect(JSON.stringify(calls)).not.toMatch(/abandon|zoo/);
   });
 
-  it('withdraw: create_withdrawal [eCash address, amount, fee, eCash fee], the address checked as an eCash one', async () => {
+  it('withdraw: the chain’s withdrawal (create_withdrawal) [eCash address, amount, fee, eCash fee], the address checked as an eCash one', async () => {
     answers['dropin.checkAddress'] = (r) => ({ valid: (r.params as { side?: string }).side === 'mainchain' });
     const { refresh } = await import('./store.svelte');
     await refresh();
@@ -113,7 +114,7 @@ describe('the drop-in pages', () => {
     await fireEvent.click(submit);
     await waitFor(() => expect(hostCalls('rpc.confirmed').length).toBe(1));
     const p = hostCalls('rpc.confirmed')[0].params as { method: string; params: unknown[] };
-    expect(p.method).toBe('create_withdrawal');
+    expect(p.method).toBe(SPEND.withdraw);
     expect(p.params).toEqual(['bcrt1qexample', 100_000_000, 1000, 1000]);
   });
 

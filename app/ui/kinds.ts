@@ -4,8 +4,11 @@ import { t } from '../../lib/i18n.svelte';
 import { formatAmount } from '../../lib/units';
 import { toCsv } from '../../lib/wallet';
 import { sats, type HistoryRow } from './api';
+import { LOCAL_KINDS } from './spend';
 
 export function kindText(row: Pick<HistoryRow, 'kind' | 'bundleStatus'>): string {
+  const local = LOCAL_KINDS[row.kind];
+  if (local) return t(local.text);
   switch (row.kind) {
     case 'receive':
       return t('Received');
@@ -33,6 +36,8 @@ export function kindText(row: Pick<HistoryRow, 'kind' | 'bundleStatus'>): string
 }
 
 export function kindIcon(row: Pick<HistoryRow, 'kind'>): IconName {
+  const local = LOCAL_KINDS[row.kind];
+  if (local) return local.icon;
   switch (row.kind) {
     case 'receive':
       return 'receive';

@@ -220,4 +220,14 @@ DACL; not yet run on Windows. macOS: not built.
 2. `main.cpp`: `bt::appui::take_option` in the flag loop, the app layer started after the LayerTwo servers.
 3. `app/manifest.json`, `app/kit.commit`, `app/chain/` (chain.json with eCash naming and the slot, overrides.ts,
    dropin.config.ts, its pages), `chains/<stem>/app/main.cpp`, `bt_desktop_app(<stem>-app ...)` under `BT_BUILD_APP`.
-4. Tests as above; `tests/e2e/run_app.py` giving `dropin_app.Chain` its slot, script, reads and signals.
+   The manifest also says, when they differ from Thunder's: `program` (the node's program, LayerTwo's name: zSide's
+   `thunder-orchard`, Hivemind's `truthcoin`; the app stays `<stem>-app`), `datadirName` (LayerTwo's data folder,
+   `<data_dir>/<datadirName>`: the app's default is the node's own), `addressFlags` (`addr`: `--rpc-addr` and
+   `--private-rpc-addr` host:port; `host-port`: plain-bitassets' `--rpc-host`/`--rpc-port` and the private pair) and
+   `mainchainUrlFlag`; `main.cpp` puts them in the `ChainSpec`. `dropin.config.ts` may name the chain's own spends
+   for the shared Send and Drivechains pages (`spend: {transfer, deposit, withdraw}`, LayerTwo's names, the parameters
+   in the same order: BitAssets' `transfer`/`withdraw`, zSide's `create_transparent_transfer`) and the words and icon
+   of its own kinds of activity rows (`kinds`), `app/ui/spend.ts`.
+4. Tests as above; `tests/e2e/run_app.py` giving `dropin_app.Chain` its slot, script, reads and signals, and where it
+   differs from Thunder: its `program`, `datadir_flag`, `addresses` (`addr_flags`/`host_port_flags`), node B's
+   `peer_setup`/`peer_available`/`peer_pay`, `wallet_addresses` and `base_reads`.
