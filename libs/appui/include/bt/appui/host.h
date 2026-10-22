@@ -247,6 +247,13 @@ struct ChainHost {
     std::map<std::string, Confirmed> confirmed;
     /** host method -> the methods it exercises (HostPrivileges). Missing: only when named in the whitelist. */
     std::map<std::string, std::vector<std::string>> privileges;
+    /**
+     * The read that stands for the wallet's amounts (getbalances): a caller that may not call it gets no wallet events
+     * (wallet.balance, wallet.tx...) from webuievents and no "balances" in node.state.
+     */
+    std::string wallet_read{"getbalances"};
+    /** The read that stands for the chain's state (node.state: the tip, the peers): its privilege. */
+    std::string chain_read{"getblockchaininfo"};
 };
 
 struct HostOptions {
@@ -275,6 +282,8 @@ public:
     /** webuihost, for tests and for an app that runs the host in its own process. */
     UniValue run(const UniValue& request, const std::string& token, const std::string& passphrase, const UniValue& files, const std::string& user);
     UniValue describe(const std::string& method, const UniValue& params, const std::string& user);
+    /** webuievents for a user: what the user may read of them (no wallet events without the wallet read). */
+    UniValue events_for(uint64_t since, std::chrono::milliseconds timeout, const std::string& user);
     Bindings& bindings() { return bindings_; }
     /** HostPrivileges: whether `allowed` lets a user run a host method. */
     bool host_method_allowed(const std::string& method, const std::function<bool(const std::string&)>& allowed) const;

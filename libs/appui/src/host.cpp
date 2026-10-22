@@ -455,8 +455,11 @@ std::string RemoteHost::canonical(const std::string& kind, const std::string& me
 RemoteHost::RemoteHost(ChainHost chain, HostOptions options, RpcServer& server)
     : chain_(std::move(chain)), options_(std::move(options)), server_(server), hub_(log_)
 {
-    // What the host answers itself reads nothing of the wallet; rpc.confirmed checks the method it runs by name.
-    for (const char* m : {"app.hello", "app.info", "node.state", "rpc.confirmed", "rpc.confirmedMethods"}) chain_.privileges.try_emplace(m);
+    // What the host answers itself: app.hello and app.info say what the chain and the node are (no wallet, no amount),
+    // rpc.confirmedMethods names the methods that ask, rpc.confirmed checks the method it runs by name; node.state
+    // shows the chain's state (the read that stands for it), its wallet amounts only to a caller of the wallet read.
+    for (const char* m : {"app.hello", "app.info", "rpc.confirmed", "rpc.confirmedMethods"}) chain_.privileges.try_emplace(m);
+    chain_.privileges.try_emplace("node.state", std::vector<std::string>{chain_.chain_read});
     server_.add("webuihost", {"request", "token", "passphrase", "files"}, [this](const Call& c) {
         std::string passphrase{c[2].isStr() ? c[2].get_str() : std::string{}};
         UniValue out{run(c[0], c[1].isStr() ? c[1].get_str() : std::string{}, passphrase, c[3], c.user)};
@@ -473,7 +476,7 @@ RemoteHost::RemoteHost(ChainHost chain, HostOptions options, RpcServer& server)
         const int64_t since{c[0].isNum() ? c[0].getInt<int64_t>() : 0};
         const int64_t timeout{c[1].isNum() ? std::clamp<int64_t>(c[1].getInt<int64_t>(), 0, 30000) : 0};
         if (stopped_) throw RpcError(RPC_CLIENT_NOT_CONNECTED, "Shutting down");
-        return log_.after(static_cast<uint64_t>(std::max<int64_t>(0, since)), std::chrono::milliseconds{timeout});
+        return events_for(static_cast<uint64_t>(std::max<int64_t>(0, since)), std::chrono::milliseconds{timeout}, c.user);
     });
     server_.add("webuichosenfile", {"path", "write", "overwrite"}, [this](const Call& c) {
         if (!c[0].isStr()) throw RpcError(RPC_INVALID_PARAMETER, "path: the file chosen");
@@ -583,7 +586,15 @@ UniValue RemoteHost::call_host(const std::string& method, const UniValue& params
     if (method == "app.info") return info();
     if (method == "node.state") {
         if (!chain_.snapshot) throw HostError(HOST_METHOD_NOT_FOUND, "No node state");
-        return chain_.snapshot();
+        UniValue s{chain_.snapshot()};
+        if (s.isObject() && s.exists("balances") && !may(chain_.wallet_read)) {
+            UniValue kept{UniValue::VOBJ};
+            for (size_t i{0}; i < s.size(); ++i) {
+                if (s.getKeys()[i] != "balances") kept.pushKV(s.getKeys()[i], s.getValues()[i]);
+            }
+            s = std::move(kept);
+        }
+        return s;
     }
     HostEnv env;
     env.user = ctx.user;
@@ -653,6 +664,30 @@ UniValue RemoteHost::run(const UniValue& request, const std::string& token, cons
         throw RpcError(HOST_ERROR, e.what());
     }
     return out;
+}
+
+UniValue RemoteHost::events_for(uint64_t since, std::chrono::milliseconds timeout, const std::string& user)
+{
+    UniValue out{log_.after(since, timeout)};
+    if (server_.allowed(user, chain_.wallet_read)) return out;
+    // A caller without the wallet read: the batches without the wallet's events (its amounts, its transactions).
+    UniValue batches{UniValue::VARR};
+    for (const UniValue& b : out.find_value("batches").getValues()) {
+        UniValue events;
+        if (!events.read(b.get_str()) || !events.isArray()) continue;
+        UniValue kept{UniValue::VARR};
+        for (const UniValue& e : events.getValues()) {
+            const UniValue& type{e.isObject() ? e.find_value("type") : NULLV};
+            if (type.isStr() && type.get_str().rfind("wallet.", 0) == 0) continue;
+            kept.push_back(e);
+        }
+        if (!kept.empty()) batches.push_back(kept.write());
+    }
+    UniValue filtered{UniValue::VOBJ};
+    filtered.pushKV("seq", out.find_value("seq"));
+    filtered.pushKV("reset", out.find_value("reset"));
+    filtered.pushKV("batches", batches);
+    return filtered;
 }
 
 UniValue RemoteHost::describe(const std::string& method, const UniValue& params, const std::string& user)

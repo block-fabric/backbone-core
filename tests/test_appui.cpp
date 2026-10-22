@@ -469,3 +469,54 @@ TEST(appui_bip85_vectors_and_dropin_phrases)
     CHECK_EQ(seed_fingerprint(seed.span()).size(), size_t{16});
     CHECK(seed_fingerprint(seed.span()) != seed_fingerprint(hd::mnemonic_to_seed(*hd::parse_mnemonic(thunder)).span()));
 }
+
+TEST(appui_node_state_and_events_hide_the_wallet_from_a_caller_without_the_wallet_read)
+{
+    Toy toy;
+    ChainHost c{toy.chain()};
+    c.snapshot = [] {
+        UniValue s{UniValue::VOBJ};
+        s.pushKV("connections", 2);
+        UniValue b{UniValue::VOBJ};
+        b.pushKV("main", 5);
+        s.pushKV("balances", b);
+        return s;
+    };
+    ServerOptions o;
+    o.whitelist.add("app:webuihost,webuievents,getblockchaininfo,getbalances");
+    o.whitelist.add("chainonly:webuihost,webuievents,getblockchaininfo");
+    o.whitelist.add("nothing:webuihost,webuievents");
+    o.whitelist.set_default(false);
+    RpcServer s(o);
+    RemoteHost host(std::move(c), {}, s);
+    UniValue r;
+    r.read(R"({"kind":"host","method":"node.state","params":{}})");
+    CHECK(host.run(r, "", "", UniValue{}, "app")["result"].exists("balances"));
+    const UniValue chain_only{host.run(r, "", "", UniValue{}, "chainonly")["result"]};
+    CHECK(!chain_only.exists("balances"));
+    CHECK_EQ(chain_only["connections"].getInt<int>(), 2);
+    // Without the chain read, node.state is not run at all (it is not an empty privilege).
+    bool refused{false};
+    try {
+        host.run(r, "", "", UniValue{}, "nothing");
+    } catch (const RpcError& e) {
+        refused = e.code == HOST_NOT_ALLOWED;
+    }
+    CHECK(refused);
+    // The wallet's events reach only a caller of the wallet read.
+    host.events().emit("tip", UniValue{1});
+    host.events().emit("wallet.balance", UniValue{5});
+    host.events().flush();
+    auto types = [](const UniValue& ev) {
+        std::string out;
+        for (const UniValue& b : ev["batches"].getValues()) {
+            UniValue list;
+            list.read(b.get_str());
+            for (const UniValue& e : list.getValues()) out += e["type"].get_str() + ";";
+        }
+        return out;
+    };
+    CHECK_EQ(types(host.events_for(0, std::chrono::milliseconds{0}, "app")), std::string{"tip;wallet.balance;"});
+    CHECK_EQ(types(host.events_for(0, std::chrono::milliseconds{0}, "chainonly")), std::string{"tip;"});
+    host.stop();
+}
