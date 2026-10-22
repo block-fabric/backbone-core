@@ -16,3 +16,17 @@ export function linkText(link: Pick<LinkInfo, 'state' | 'connected' | 'behind_bl
   if (state === 'starting') return t('connecting…');
   return t('not reachable');
 }
+
+/** A network of the drop-in node (LayerTwo's names, its --network) with the eCash network it goes with. */
+export function networkLabel(network: string): string {
+  switch (network) {
+    case 'betanet':
+      return t('betanet (eCash betanet, ecashbeta)');
+    case 'signet':
+      return t('signet (tests)');
+    case 'regtest':
+      return t('regtest (local tests)');
+    default:
+      return network;
+  }
+}

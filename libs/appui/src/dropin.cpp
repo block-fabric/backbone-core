@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <ctime>
 
 namespace bt::appui {
 
@@ -376,8 +377,10 @@ PendingPhrases::~PendingPhrases()
 UniValue tip_json(const NodeLook& look)
 {
     UniValue t{UniValue::VOBJ};
-    t.pushKV("height", look.height ? static_cast<int64_t>(*look.height) : int64_t{-1});
-    t.pushKV("time", static_cast<int64_t>(look.tip_time));
+    // A chain with no block yet (a new network, a fresh data folder) has nothing to catch up on its side: its height is
+    // 0 and its time now, not 1970 (the kit would say "56 years behind"); the eCash link's own state is its banner's.
+    t.pushKV("height", look.height ? static_cast<int64_t>(*look.height) : int64_t{0});
+    t.pushKV("time", look.tip.empty() && look.tip_time == 0 ? static_cast<int64_t>(std::time(nullptr)) : static_cast<int64_t>(look.tip_time));
     t.pushKV("hash", look.tip);
     t.pushKV("progress", 1.0);
     t.pushKV("state", "post_init");

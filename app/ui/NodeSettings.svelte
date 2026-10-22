@@ -8,6 +8,7 @@
   import { t } from '../../lib/i18n.svelte';
   import { toast } from '../../lib/state.svelte';
   import { appNode, type NodeSettings } from './api';
+  import { networkLabel } from './link';
   import { embedded } from './store.svelte';
 
   let s = $state<NodeSettings | null>(null);
@@ -80,9 +81,9 @@
     <div class="field">
       <label for="opt-net">{t('Network')}</label>
       <select id="opt-net" bind:value={network} disabled={fixed('network')}>
-        {#each s?.networks ?? [] as n (n)}<option value={n}>{n}</option>{/each}
+        {#each s?.networks ?? [] as n (n)}<option value={n}>{networkLabel(n)}</option>{/each}
       </select>
-      <span class="hint">{fixed('network') ? t('Set on the command line (--network).') : t('betanet follows eCash’s betanet (slot %1); regtest and signet are for tests.', DROPIN.slot)}</span>
+      <span class="hint">{fixed('network') ? t('Set on the command line (--network).') : t('The node’s networks are LayerTwo’s: betanet is the one of eCash’s betanet (ecashbeta, slot %1); regtest and signet are for tests. The eCash network itself is the mainchain interface’s.', DROPIN.slot)}</span>
     </div>
     <div class="field">
       <label for="opt-url">{t('Mainchain interface (gRPC)')}</label>

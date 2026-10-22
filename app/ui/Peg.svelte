@@ -229,7 +229,7 @@
               {#each peg.withdrawals as w (w.txid + w.mainAddress + w.amount)}
                 <li>
                   <span class="state {w.state}">{stateText(w)}</span>
-                  <span class="mono break">{w.mainAddress}</span>
+                  <span class="mono addr" title={w.mainAddress}>{w.mainAddress}</span>
                   <Amount sats={sats(w.amount)} />
                   {#if w.m6id}<span class="mono faint" title={w.m6id}>{t('bundle')} {shortHash(w.m6id, 8)}</span>{/if}
                 </li>
@@ -341,9 +341,15 @@
   }
   .wds li {
     display: grid;
-    grid-template-columns: 11rem minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     gap: 0.3rem 0.8rem;
     align-items: center;
+  }
+  .wds .addr {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.85rem;
   }
   .wds .faint {
     grid-column: 2 / 4;

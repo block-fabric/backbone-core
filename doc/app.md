@@ -137,7 +137,9 @@ implementations (`tests/test_appui.cpp` and an independent Python one checked ag
 | bitnames, regtest | 756939817 | toast rebuild airport excite load category oil decrease riot ripple simple begin | 28f49c28f4cfb73e |
 
 The unified wallet (its own cookie user; the pages' user may not call these):
-1. `getwalletphraseinfo` → `{hasSeed, fingerprint, from: "unified"|"app"|"restored"|"", derivation}`.
+1. `getwalletphraseinfo` → `{hasSeed, phraseKept, fingerprint, from, derivation}`; `from`: `unified` (set by it),
+   `app` (made in the app), `restored` (typed in the app), `outside` (set through LayerTwo's own
+   `set_seed_from_mnemonic` or its `--mnemonic-seed-phrase-path`), empty without a seed.
 2. No seed: `setwalletphrase [phrase]` with the derived phrase → `{fingerprint}`; the wallet checks it is the
    fingerprint of the phrase it derived. The node keeps the phrase only as its wallet's seed (unencrypted at rest, as
    LayerTwo's wallets) and records `from: "unified"`.
