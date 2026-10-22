@@ -195,7 +195,14 @@ it, with or without our app. The wallet's seed is unencrypted at rest (LayerTwo'
   block producer), the app in a virtual display: start, phrase, deposit, send, receive, the chain's own steps,
   withdrawal paid on eCash, screenshots, then the LayerTwo replies byte-identical without and with the app layer.
 
-## 7. Adding a drop-in chain (zSide, BitAssets, Hivemind)
+## 7. Platforms
+
+Linux (GTK 3, WebKitGTK 4.1): built, unit-tested and run end to end. Windows (mingw-w64, WebView2): the nodes and
+the apps cross-compile (`-DBT_BUILD_APP=ON -DWEBVIEW2_INCLUDE_DIR=<the WebView2 SDK headers, e.g. a Chains depends
+build's include/webview2>`); the app's child is a `CreateProcess` in a kill-on-close Job, the cookie gets an owner-only
+DACL; not yet run on Windows. macOS: not built.
+
+## 8. Adding a drop-in chain (zSide, BitAssets, Hivemind)
 
 1. `chains/<stem>/src/appui.cpp`: an `AppLayer` like Thunder's (the shared `bt::appui::dropin` helpers: options,
    link monitor, store, poller), its describers for its spends, its host methods `<stem>.*` with their privileges.
