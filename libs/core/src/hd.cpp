@@ -56,11 +56,10 @@ static int word_index(const std::string& w)
     return int(it - std::begin(WORDS));
 }
 
-std::string generate_mnemonic(size_t words)
+std::string mnemonic_from_entropy(ByteSpan ent)
 {
-    size_t ent_bits = words * 32 / 3; // 12 -> 128
-    Bytes ent(ent_bits / 8);
-    randombytes_buf(ent.data(), ent.size());
+    if (ent.size() < 16 || ent.size() > 32 || ent.size() % 4) throw std::invalid_argument("BIP-39 entropy is 16 to 32 bytes, a multiple of 4");
+    const size_t ent_bits = ent.size() * 8, words = (ent_bits + ent_bits / 32) / 11;
     Hash32 h = sha256(ent);
     std::vector<int> bits;
     for (uint8_t b : ent)
@@ -73,6 +72,16 @@ std::string generate_mnemonic(size_t words)
         if (w) r += " ";
         r += WORDS[idx];
     }
+    return r;
+}
+
+std::string generate_mnemonic(size_t words)
+{
+    size_t ent_bits = words * 32 / 3; // 12 -> 128
+    Bytes ent(ent_bits / 8);
+    randombytes_buf(ent.data(), ent.size());
+    std::string r = mnemonic_from_entropy(ent);
+    sodium_memzero(ent.data(), ent.size());
     return r;
 }
 

@@ -26,6 +26,8 @@ ByteArray<64> pbkdf2_hmac_sha512(ByteSpan password, ByteSpan salt, uint32_t roun
 
 /** 12-word (128-bit) mnemonic from the OS RNG. */
 std::string generate_mnemonic(size_t words = 12);
+/** The BIP-39 English phrase of 16 to 32 bytes of entropy (a multiple of 4): 12 to 24 words. */
+std::string mnemonic_from_entropy(ByteSpan entropy);
 /** Validate words + checksum (Mnemonic::from_phrase); returns the normalised phrase. */
 std::optional<std::string> parse_mnemonic(const std::string& phrase);
 /** Why tiny-bip39 2.0's Mnemonic::from_phrase refuses `phrase`, in its words, in its order (an unknown word
