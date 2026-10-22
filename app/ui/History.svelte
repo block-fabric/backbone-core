@@ -5,6 +5,7 @@
   import Amount from '../../components/Amount.svelte';
   import DataTable from '../../components/DataTable.svelte';
   import Icon from '../../components/Icon.svelte';
+  import SafeText from '../../components/SafeText.svelte';
   import { CHAIN } from '../config';
   import { errorText } from '../../lib/dialogs.svelte';
   import { saveTextAs } from '../../lib/files';
@@ -13,11 +14,11 @@
   import { takeFocus } from '../../lib/nav.svelte';
   import { prefs, toast } from '../../lib/state.svelte';
   import type { Column } from '../../lib/table';
-  import { formatAmount, unitInfo } from '../../lib/units';
+  import { unitInfo } from '../../lib/units';
   import SetupWallet from './SetupWallet.svelte';
   import TxDialog from './TxDialog.svelte';
   import { sats, type HistoryRow } from './api';
-  import { counterparty, kindText } from './kinds';
+  import { activityCsv, counterparty, kindText } from './kinds';
   import { drop, follow, wantHistory } from './store.svelte';
 
   $effect(() => follow());
@@ -57,17 +58,8 @@
   ];
 
   async function exportCsv() {
-    const esc = (s: string) => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
-    const lines = [['Date', 'Type', 'Address', `Amount (${CHAIN.coin.ticker})`, 'Fee', 'Transaction', 'Block', 'Status'].join(',')];
-    for (const r of drop.history) {
-      lines.push(
-        [r.time ? new Date(r.time * 1000).toISOString() : '', kindText(r), counterparty(r), formatAmount(sats(r.amount), 'CHN', { plus: true }), r.fee !== undefined ? formatAmount(sats(r.fee), 'CHN') : '', r.txid ?? r.m6id ?? r.id, r.height ?? '', r.pending ? 'pending' : (r.bundleStatus ?? 'confirmed')]
-          .map((v) => esc(String(v)))
-          .join(','),
-      );
-    }
     try {
-      const path = await saveTextAs({ title: t('Export the activity'), name: `${CHAIN.bin}-activity.csv`, filters: [{ name: 'CSV', patterns: ['*.csv'] }] }, lines.join('\n') + '\n');
+      const path = await saveTextAs({ title: t('Export the activity'), name: `${CHAIN.bin}-activity.csv`, filters: [{ name: 'CSV', patterns: ['*.csv'] }] }, activityCsv(drop.history, CHAIN.coin.ticker));
       if (path) toast('success', t('Exported'), path);
     } catch (e) {
       toast('error', t('Export failed'), errorText(e));
@@ -104,7 +96,7 @@
         {#snippet cell(row, column)}
           {#if column.key === 'date'}{#if row.pending}<span class="badge warning">{t('pending')}</span>{:else if row.time}{formatTime(row.time)}{:else}<span class="faint">–</span>{/if}
           {:else if column.key === 'kind'}{kindText(row)}
-          {:else if column.key === 'other'}<span class="mono clip" title={counterparty(row)}>{counterparty(row)}</span>
+          {:else if column.key === 'other'}<SafeText class="mono clip" title={counterparty(row)} text={counterparty(row)} />
           {:else if row.kind === 'bundle'}<span class="faint"><Amount sats={sats(row.withdrawing)} showUnit={false} /></span>
           {:else}<Amount sats={sats(row.amount)} plus colored showUnit={false} />{/if}
         {/snippet}
@@ -130,7 +122,7 @@
     width: 12rem;
     flex: none;
   }
-  .clip {
+  .holder :global(.clip) {
     display: block;
     overflow: hidden;
     text-overflow: ellipsis;

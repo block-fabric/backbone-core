@@ -144,4 +144,33 @@ describe('the drop-in pages', () => {
     expect(satsNumber(150n)).toBe(150);
     expect(() => satsNumber(-1n)).toThrow();
   });
+
+  it('the activity CSV: text chosen by someone else on the chain is never a formula; numbers stay numbers', async () => {
+    const { activityCsv } = await import('./kinds');
+    const row = (over: Record<string, unknown>) => ({ id: 'aa', kind: 'name-received', amount: 0, received: 0, sent: 0, to: [], recipients: 0, pending: false, height: 7, time: 1_790_000_000, approxTime: false, ...over }) as never;
+    const csv = activityCsv(
+      [
+        row({ names: ["=cmd|' /C calc'!A0"] }),
+        row({ names: ['+1+1'] }),
+        row({ names: ['@SUM(A1)'] }),
+        row({ names: ['\t=1'] }),
+        row({ names: ['-2+3'] }),
+        row({ kind: 'reservation', reservedName: '\r=1' }),
+        row({ kind: 'receive', amount: 150_000_000, ownAddress: '4XrMw8bmnhchFspSyP4XRUuB5vaR', names: undefined }),
+      ],
+      'ECX',
+    );
+    const lines = csv.trim().split('\n');
+    const cell = (i: number) => lines[i].split('","')[2];
+    expect(lines[0]).toContain('"Amount (ECX)"');
+    expect(cell(1)).toBe("'=cmd|' /C calc'!A0");
+    expect(cell(2)).toBe("'+1+1");
+    expect(cell(3)).toBe("'@SUM(A1)");
+    expect(cell(4).startsWith("'")).toBe(true);
+    expect(cell(5)).toBe("'-2+3");
+    expect(cell(6).startsWith("'")).toBe(true);
+    expect(cell(7)).toBe('4XrMw8bmnhchFspSyP4XRUuB5vaR');
+    // The amount: a number, not neutralised.
+    expect(lines[7].split('","')[3]).toBe('+1.50000000');
+  });
 });

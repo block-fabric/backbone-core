@@ -1,7 +1,9 @@
 // The kinds of the wallet's activity (dropin.history), in words and an icon.
 import type { IconName } from '../../components/Icon.svelte';
 import { t } from '../../lib/i18n.svelte';
-import type { HistoryRow } from './api';
+import { formatAmount } from '../../lib/units';
+import { toCsv } from '../../lib/wallet';
+import { sats, type HistoryRow } from './api';
 
 export function kindText(row: Pick<HistoryRow, 'kind' | 'bundleStatus'>): string {
   switch (row.kind) {
@@ -63,4 +65,25 @@ export function counterparty(row: HistoryRow): string {
   if (row.to.length === 1) return row.to[0].address;
   if (row.recipients > 1) return t('%1 recipients', row.recipients);
   return row.ownAddress ?? '';
+}
+
+/**
+ * The activity as a CSV file. Every cell goes through the kit's toCsv (csvSafe): a name, an address or any other text
+ * that someone else chose on the chain (a BitName is anyone's text) and that a spreadsheet would run as a formula (=, +,
+ * -, @, a tab or a return first) gets a ' first; numbers stay numbers.
+ */
+export function activityCsv(rows: readonly HistoryRow[], ticker: string): string {
+  return toCsv(
+    ['Date', 'Type', 'Address or name', `Amount (${ticker})`, 'Fee', 'Transaction', 'Block', 'Status'],
+    rows.map((r) => [
+      r.time ? new Date(r.time * 1000).toISOString() : '',
+      kindText(r),
+      counterparty(r),
+      formatAmount(sats(r.amount), 'CHN', { plus: true }),
+      r.fee !== undefined ? formatAmount(sats(r.fee), 'CHN') : '',
+      r.txid ?? r.m6id ?? r.id,
+      r.height !== null && r.height !== undefined ? String(r.height) : '',
+      r.pending ? 'pending' : (r.bundleStatus ?? 'confirmed'),
+    ]),
+  );
 }

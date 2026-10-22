@@ -2,6 +2,7 @@
   // A short list of the wallet's activity (Home, Overview): its kind, the other side, when, the amount.
   import Amount from '../../components/Amount.svelte';
   import Icon from '../../components/Icon.svelte';
+  import SafeText from '../../components/SafeText.svelte';
   import { niceTimeOffset, shortHash } from '../../lib/format';
   import { t } from '../../lib/i18n.svelte';
   import { goTo } from '../../lib/nav.svelte';
@@ -21,7 +22,7 @@
           <span class="ico {row.amount > 0 ? 'in' : row.amount < 0 ? 'out' : ''}"><Icon name={kindIcon(row)} size={16} /></span>
           <span class="what">
             <strong>{kindText(row)}</strong>
-            <span class="mono faint">{counterparty(row) ? shortHash(counterparty(row), 10) : row.txid ? shortHash(row.txid, 8) : ''}</span>
+            <SafeText class="mono faint" text={counterparty(row) ? shortHash(counterparty(row), 10) : row.txid ? shortHash(row.txid, 8) : ''} />
           </span>
           <span class="when muted">
             {#if row.pending}<span class="badge warning">{t('pending')}</span>
@@ -82,7 +83,7 @@
     flex-direction: column;
     min-width: 0;
   }
-  .what .mono {
+  .what :global(.mono) {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

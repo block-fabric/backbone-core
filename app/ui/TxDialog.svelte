@@ -4,6 +4,7 @@
   import Amount from '../../components/Amount.svelte';
   import CopyButton from '../../components/CopyButton.svelte';
   import Dialog from '../../components/Dialog.svelte';
+  import SafeText from '../../components/SafeText.svelte';
   import { errorText } from '../../lib/dialogs.svelte';
   import { formatCount, formatTime } from '../../lib/format';
   import { t } from '../../lib/i18n.svelte';
@@ -36,6 +37,8 @@
       <dt>{t('Amount')}</dt><dd><Amount sats={sats(row.amount)} plus colored /></dd>
       {#if row.withdrawing}<dt>{t('Withdrawn to eCash')}</dt><dd><Amount sats={sats(row.withdrawing)} /></dd>{/if}
       {#if row.mainAddress}<dt>{t('eCash address')}</dt><dd class="mono break">{row.mainAddress}</dd>{/if}
+      {#if row.names?.length}<dt>{t('Names')}</dt><dd class="break"><SafeText text={row.names.join(', ')} /></dd>{/if}
+      {#if row.reservedName}<dt>{t('Reserved name')}</dt><dd class="break"><SafeText text={row.reservedName} /></dd>{/if}
       {#if row.fee !== undefined}<dt>{t('Fee')}</dt><dd><Amount sats={sats(row.fee)} /></dd>{/if}
       <dt>{t('Status')}</dt><dd>{row.pending ? t('Waiting for a block') : detail?.confirmations ? t('%1 confirmations', formatCount(detail.confirmations)) : row.bundleStatus ?? t('In a block')}</dd>
       {#if row.height !== null}<dt>{t('Block')}</dt><dd class="num">{formatCount(row.height)}{#if row.approxTime} <span class="faint">({t('first seen')})</span>{/if}</dd>{/if}
