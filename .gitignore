@@ -3,3 +3,4 @@
 /depends/sources/
 /depends/work/
 *.swp
+__pycache__/
