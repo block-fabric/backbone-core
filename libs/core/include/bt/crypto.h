@@ -4,6 +4,8 @@
 // Hash functions used by the LayerTwo-family chains and the mainchain link.
 #pragma once
 
+#include <string_view>
+
 #include <bt/bytes.h>
 
 namespace bt {
@@ -14,6 +16,8 @@ public:
     Blake3();
     /** Keyed mode (blake3::Hasher::new_keyed). */
     explicit Blake3(const ByteArray<32>& key);
+    /** Key derivation mode (blake3::Hasher::new_derive_key(context)). */
+    static Blake3 derive_key(std::string_view context);
     ~Blake3();
     Blake3(const Blake3&);
     Blake3& operator=(const Blake3&);

@@ -30,6 +30,9 @@ TEST(blake3_vectors)
 {
     CHECK_EQ(h(blake3(str("")).span()), "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262");
     CHECK_EQ(h(blake3(str("abc")).span()), "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85");
+    // BLAKE3 test_vectors.json, input_len 0, derive_key mode
+    auto dk = Blake3::derive_key("BLAKE3 2019-12-27 16:29:52 test vectors context");
+    CHECK_EQ(h(dk.finalize().span()), "2cc39783c223154fea8dfb7c1b1660f2ac2dcbd1c1de8277b0b0dd39b7e50d7d");
 }
 
 TEST(base58_roundtrip)
