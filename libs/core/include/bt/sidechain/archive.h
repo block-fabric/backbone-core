@@ -300,6 +300,7 @@ public:
         m.work = U256::from_le(r.array<32>());
         m.total_work = U256::from_le(r.array<32>());
         m.skip = r.array<32>();
+        if (!r.empty()) m.timestamp = r.u64();
         return m;
     }
     mainchain::BlockInfo main_block_info(const Txn& t, const Hash32& h) const
@@ -337,6 +338,7 @@ public:
         m.hash = hi.block_hash;
         m.prev = hi.prev_block_hash;
         m.work = U256::from_le(hi.work);
+        m.timestamp = hi.timestamp;
         if (hi.prev_block_hash.is_zero()) {
             m.height = 0;
             m.total_work = m.work;
@@ -354,6 +356,7 @@ public:
         w.raw(m.work.to_le());
         w.raw(m.total_work.to_le());
         w.raw(m.skip);
+        w.u64(m.timestamp);
         t.put(A_MAIN_HDR, m.hash.span(), w.buf);
         auto s = main_successors(t, hi.prev_block_hash);
         if (std::find(s.begin(), s.end(), m.hash) == s.end()) s.push_back(m.hash);
