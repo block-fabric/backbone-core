@@ -460,6 +460,13 @@ RemoteHost::RemoteHost(ChainHost chain, HostOptions options, RpcServer& server)
     // shows the chain's state (the read that stands for it), its wallet amounts only to a caller of the wallet read.
     for (const char* m : {"app.hello", "app.info", "rpc.confirmed", "rpc.confirmedMethods"}) chain_.privileges.try_emplace(m);
     chain_.privileges.try_emplace("node.state", std::vector<std::string>{chain_.chain_read});
+    // Who may read which event: the chain's to a reader of the chain, the wallet's to a reader of the wallet.
+    for (const char* e : {"tip", "headerTip", "connections", "networkActive", "alert", "progress", "init.message", "bans", "mempool", "traffic"}) {
+        chain_.event_privileges.try_emplace(e, chain_.chain_read);
+    }
+    for (const char* e : {"wallet.loaded", "wallet.unloaded", "wallet.status", "wallet.balance", "wallet.tx", "wallet.progress", "wallet.addressbook"}) {
+        chain_.event_privileges.try_emplace(e, chain_.wallet_read);
+    }
     server_.add("webuihost", {"request", "token", "passphrase", "files"}, [this](const Call& c) {
         std::string passphrase{c[2].isStr() ? c[2].get_str() : std::string{}};
         UniValue out{run(c[0], c[1].isStr() ? c[1].get_str() : std::string{}, passphrase, c[3], c.user)};
@@ -669,8 +676,17 @@ UniValue RemoteHost::run(const UniValue& request, const std::string& token, cons
 UniValue RemoteHost::events_for(uint64_t since, std::chrono::milliseconds timeout, const std::string& user)
 {
     UniValue out{log_.after(since, timeout)};
-    if (server_.allowed(user, chain_.wallet_read)) return out;
-    // A caller without the wallet read: the batches without the wallet's events (its amounts, its transactions).
+    if (server_.may_call_all(user)) return out;
+    // Each event only to a caller of the read it stands for (event_privileges); a type not listed to nobody.
+    std::map<std::string, bool> may;
+    auto allowed = [&](const std::string& type) {
+        auto it{may.find(type)};
+        if (it != may.end()) return it->second;
+        const auto need{chain_.event_privileges.find(type)};
+        const bool ok{need != chain_.event_privileges.end() && server_.allowed(user, need->second)};
+        may[type] = ok;
+        return ok;
+    };
     UniValue batches{UniValue::VARR};
     for (const UniValue& b : out.find_value("batches").getValues()) {
         UniValue events;
@@ -678,8 +694,7 @@ UniValue RemoteHost::events_for(uint64_t since, std::chrono::milliseconds timeou
         UniValue kept{UniValue::VARR};
         for (const UniValue& e : events.getValues()) {
             const UniValue& type{e.isObject() ? e.find_value("type") : NULLV};
-            if (type.isStr() && type.get_str().rfind("wallet.", 0) == 0) continue;
-            kept.push_back(e);
+            if (type.isStr() && allowed(type.get_str())) kept.push_back(e);
         }
         if (!kept.empty()) batches.push_back(kept.write());
     }

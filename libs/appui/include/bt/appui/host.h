@@ -254,6 +254,11 @@ struct ChainHost {
     std::string wallet_read{"getbalances"};
     /** The read that stands for the chain's state (node.state: the tip, the peers): its privilege. */
     std::string chain_read{"getblockchaininfo"};
+    /**
+     * The privilege each event type needs (webuievents): an event of a type not listed reaches nobody (but a caller that
+     * may call everything). Empty: the template's events, the chain's to chain_read, the wallet's to wallet_read.
+     */
+    std::map<std::string, std::string> event_privileges;
 };
 
 struct HostOptions {

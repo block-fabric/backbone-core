@@ -486,6 +486,7 @@ TEST(appui_node_state_and_events_hide_the_wallet_from_a_caller_without_the_walle
     o.whitelist.add("app:webuihost,webuievents,getblockchaininfo,getbalances");
     o.whitelist.add("chainonly:webuihost,webuievents,getblockchaininfo");
     o.whitelist.add("nothing:webuihost,webuievents");
+    o.whitelist.add("walletonly:webuihost,webuievents,getbalances");
     o.whitelist.set_default(false);
     RpcServer s(o);
     RemoteHost host(std::move(c), {}, s);
@@ -518,5 +519,12 @@ TEST(appui_node_state_and_events_hide_the_wallet_from_a_caller_without_the_walle
     };
     CHECK_EQ(types(host.events_for(0, std::chrono::milliseconds{0}, "app")), std::string{"tip;wallet.balance;"});
     CHECK_EQ(types(host.events_for(0, std::chrono::milliseconds{0}, "chainonly")), std::string{"tip;"});
+    CHECK_EQ(types(host.events_for(0, std::chrono::milliseconds{0}, "walletonly")), std::string{"wallet.balance;"});
+    CHECK_EQ(types(host.events_for(0, std::chrono::milliseconds{0}, "nothing")), std::string{""});
+    // A type nobody listed: to nobody but a caller that may call everything.
+    host.events().emit("somethingnew", UniValue{1});
+    host.events().flush();
+    CHECK(types(host.events_for(1, std::chrono::milliseconds{0}, "app")).find("somethingnew") == std::string::npos);
+    CHECK(types(host.events_for(1, std::chrono::milliseconds{0}, "root")).find("somethingnew") != std::string::npos);
     host.stop();
 }
