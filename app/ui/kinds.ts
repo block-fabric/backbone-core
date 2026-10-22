@@ -59,6 +59,18 @@ export function kindIcon(row: Pick<HistoryRow, 'kind'>): IconName {
   }
 }
 
+/** A whole amount (exact decimal text, a sign first or not) in groups of three digits: "+1,000,000". */
+export function groupUnits(text: string): string {
+  const m = /^([+-]?)(\d+)$/.exec(text);
+  if (!m) return text;
+  return (m[1] === '-' ? '−' : m[1]) + m[2].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+/** What a row of a chain of assets moved, in words: "+250 gold, −1,000 silver". */
+export function assetsText(row: Pick<HistoryRow, 'assets'>): string {
+  return (row.assets ?? []).map((a) => `${groupUnits(a.amount)} ${a.label}`).join(', ');
+}
+
 /** The other side of a row, for its line: who was paid, or the eCash address of a withdrawal. */
 /** Whether the row's other side is words of the chain's (a kind's own `line`), not an address or a hash to shorten. */
 export function lineIsText(row: Pick<HistoryRow, 'kind'>): boolean {
@@ -85,13 +97,16 @@ export function counterparty(row: HistoryRow): string {
  * -, @, a tab or a return first) gets a ' first; numbers stay numbers.
  */
 export function activityCsv(rows: readonly HistoryRow[], ticker: string): string {
+  // A chain of assets adds what each row moved of them (only when some row moved any: the others' files are as they were).
+  const assets = rows.some((r) => r.assets?.length);
   return toCsv(
-    ['Date', 'Type', 'Address or name', `Amount (${ticker})`, 'Fee', 'Transaction', 'Block', 'Status'],
+    ['Date', 'Type', 'Address or name', `Amount (${ticker})`, ...(assets ? ['Assets'] : []), 'Fee', 'Transaction', 'Block', 'Status'],
     rows.map((r) => [
       r.time ? new Date(r.time * 1000).toISOString() : '',
       kindText(r),
       counterparty(r),
       formatAmount(sats(r.amount), 'CHN', { plus: true }),
+      ...(assets ? [assetsText(r).replace(/−/g, '-')] : []),
       r.fee !== undefined ? formatAmount(sats(r.fee), 'CHN') : '',
       r.txid ?? r.m6id ?? r.id,
       r.height !== null && r.height !== undefined ? String(r.height) : '',

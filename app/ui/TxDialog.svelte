@@ -12,6 +12,7 @@
   import { dropin, sats, type HistoryRow, type TxDetail } from './api';
   import { kindText } from './kinds';
   import { rowFacts } from './spend';
+  import OutputValue from './OutputValue.svelte';
 
   let { row = $bindable(null) }: { row?: HistoryRow | null } = $props();
   let open = $state(false);
@@ -57,7 +58,7 @@
             <span class="mono break">{o.address}</span>
             {#if o.mine}<span class="badge">{t('yours')}</span>{/if}
             {#if o.kind === 'withdrawal'}<span class="badge warning">{t('withdrawal')}</span>{/if}
-            <Amount sats={sats(o.amount)} />
+            <OutputValue {o} />
           </li>
         {/each}
       </ul>

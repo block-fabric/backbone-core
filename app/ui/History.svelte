@@ -18,7 +18,7 @@
   import SetupWallet from './SetupWallet.svelte';
   import TxDialog from './TxDialog.svelte';
   import { sats, type HistoryRow } from './api';
-  import { activityCsv, counterparty, kindText } from './kinds';
+  import { activityCsv, assetsText, counterparty, kindText } from './kinds';
   import { LOCAL_KINDS } from './spend';
   import { drop, follow, wantHistory } from './store.svelte';
 
@@ -100,6 +100,7 @@
           {:else if column.key === 'kind'}{kindText(row)}
           {:else if column.key === 'other'}<SafeText class="mono clip" title={counterparty(row)} text={counterparty(row)} />
           {:else if row.kind === 'bundle'}<span class="faint"><Amount sats={sats(row.withdrawing)} showUnit={false} /></span>
+          {:else if row.assets?.length}<SafeText class="clip" title={assetsText(row)} text={assetsText(row)} />
           {:else}<Amount sats={sats(row.amount)} plus colored showUnit={false} />{/if}
         {/snippet}
       </DataTable>

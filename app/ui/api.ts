@@ -43,6 +43,8 @@ export interface HistoryRow {
   names?: string[];
   /** BitNames: the name a reservation of the wallet commits to (only the wallet knows it). */
   reservedName?: string;
+  /** A chain of assets (BitAssets): what the row moved of each, into the wallet (+) or out of it (-), exact. */
+  assets?: AssetMove[];
   fee?: number;
   to: { address: string; amount: number }[];
   recipients: number;
@@ -53,10 +55,25 @@ export interface HistoryRow {
   block?: string;
 }
 
+/** An asset a row of the activity moved: its label (its name when the wallet knows it, else its id's start) and the
+ *  signed whole amount ("+1000", "-250"; exact text, an asset's amounts may pass 2^53). */
+export interface AssetMove {
+  label: string;
+  amount: string;
+  id?: string;
+  assetId?: string;
+  name?: string;
+}
+
 export interface OutputView {
   address: string;
   amount: number;
-  kind: 'value' | 'withdrawal';
+  /** value, withdrawal; a chain's own kinds besides (BitAssets: asset, control, lp, reservation, receipt). */
+  kind: 'value' | 'withdrawal' | string;
+  /** A chain of assets: the whole amount of an asset or LP output (exact text), its asset's id and name. */
+  units?: string;
+  asset?: string;
+  assetName?: string;
   mainAddress?: string;
   mainFee?: number;
   /** Whether it is the wallet's (only for a caller that may read the wallet's addresses). */

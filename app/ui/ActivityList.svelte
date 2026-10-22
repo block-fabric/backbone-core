@@ -7,7 +7,7 @@
   import { t } from '../../lib/i18n.svelte';
   import { goTo } from '../../lib/nav.svelte';
   import { sats, type HistoryRow } from './api';
-  import { counterparty, kindIcon, kindText, lineIsText } from './kinds';
+  import { assetsText, counterparty, kindIcon, kindText, lineIsText } from './kinds';
 
   let { rows, now = Math.floor(Date.now() / 1000), empty }: { rows: HistoryRow[]; now?: number; empty: string } = $props();
 </script>
@@ -29,7 +29,7 @@
             {#if row.pending}<span class="badge warning">{t('pending')}</span>
             {:else if row.time}{t('%1 ago', niceTimeOffset(Math.max(0, now - row.time)))}{/if}
           </span>
-          <span class="amt">{#if row.kind === 'bundle'}<span class="faint"><Amount sats={sats(row.withdrawing)} /></span>{:else}<Amount sats={sats(row.amount)} plus colored />{/if}</span>
+          <span class="amt">{#if row.kind === 'bundle'}<span class="faint"><Amount sats={sats(row.withdrawing)} /></span>{:else if row.assets?.length}<SafeText class="assetamt {row.assets.some((a) => a.amount.startsWith('+')) ? 'in' : ''}" text={assetsText(row)} />{:else}<Amount sats={sats(row.amount)} plus colored />{/if}</span>
         </button>
       </li>
     {/each}
@@ -37,6 +37,13 @@
 {/if}
 
 <style>
+  .amt :global(.assetamt) {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .amt :global(.assetamt.in) {
+    color: var(--positive);
+  }
   .activity {
     list-style: none;
     margin: 0;
