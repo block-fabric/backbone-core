@@ -82,12 +82,37 @@ inline int64_t node_now_s()
     return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
+/** Key of a remote address for bans and rate limits (one helper for both): an IPv4 address as
+ *  is; an IPv4-mapped (::ffff:a.b.c.d) or IPv4-compatible (::a.b.c.d) IPv6 address as its
+ *  embedded IPv4 (a dual-stack socket must not group every IPv4 peer under one /64, and a
+ *  different spelling of one address must not escape its ban); a native IPv6 address by its /64
+ *  prefix (one host usually owns a whole /64). */
+inline std::string rate_key(const std::string& ip)
+{
+    if (ip.find(':') == std::string::npos) return ip;
+    std::string bare = ip;
+    if (!bare.empty() && bare.front() == '[' && bare.back() == ']') bare = bare.substr(1, bare.size() - 2);
+    if (auto pct = bare.find('%'); pct != std::string::npos) bare.resize(pct); // zone id
+    in6_addr a{};
+    if (inet_pton(AF_INET6, bare.c_str(), &a) != 1) return ip;
+    char buf[INET6_ADDRSTRLEN];
+    if (IN6_IS_ADDR_V4MAPPED(&a) || (IN6_IS_ADDR_V4COMPAT(&a))) {
+        in_addr v4{};
+        std::memcpy(&v4, a.s6_addr + 12, 4);
+        inet_ntop(AF_INET, &v4, buf, sizeof buf);
+        return buf;
+    }
+    std::memset(a.s6_addr + 8, 0, 8);
+    inet_ntop(AF_INET6, &a, buf, sizeof buf);
+    return std::string(buf) + "/64";
+}
+
 /** Ban table: ip -> expiry (seconds, node_now_s clock). A ban is active until it expires; it is
  *  enforced on outbound dials, on inbound connections (closed at connect) and on every request
  *  (backstop). Security review 2026-10-22 (MEDIUM): bans were enforced on outbound dials only. */
 inline bool ban_active(const std::map<std::string, int64_t>& banned, const std::string& ip, int64_t now)
 {
-    auto it = banned.find(ip);
+    auto it = banned.find(rate_key(ip)); // keys are rate_key()s
     return it != banned.end() && it->second > now;
 }
 
@@ -127,19 +152,6 @@ struct RequestBudget {
         return true;
     }
 };
-
-/** Rate-limit key of a remote address: the IPv4 address, or the /64 prefix of an IPv6 one (one
- *  host usually owns a whole /64). */
-inline std::string rate_key(const std::string& ip)
-{
-    if (ip.find(':') == std::string::npos) return ip;
-    in6_addr a{};
-    if (inet_pton(AF_INET6, ip.c_str(), &a) != 1) return ip;
-    char buf[INET6_ADDRSTRLEN];
-    std::memset(a.s6_addr + 8, 0, 8);
-    inet_ntop(AF_INET6, &a, buf, sizeof buf);
-    return std::string(buf) + "/64";
-}
 
 /** GetHeaders budgets per remote IP (/64 for IPv6), kept across disconnects so a reconnect does not
  *  reset them (review 2026-10-22, MEDIUM). Entries idle for a full window expire; the table holds at
@@ -250,7 +262,7 @@ public:
                 if (ban_active(banned_, a.ip, node_now_s())) {
                     l.unlock();
                     LOG_INFO("refusing banned peer %s", a.to_string().c_str());
-                    post_job([this, c] { ep_->close(c, "banned"); }); // not from the I/O callback
+                    ep_->close(c, "banned"); // Endpoint::close only queues the drop on the I/O loop: no worker queue to stall
                     return;
                 }
                 auto& p = peers_[c];
@@ -883,6 +895,7 @@ private:
         bool connected = false, inbound = false;
         std::optional<PeerState> state;
         int64_t last_sync_try = 0;
+        bool bodies_chain = false; // a request_bodies chain is running for this peer
     };
     std::unique_ptr<quic::Endpoint> ep_;
     std::mutex peers_mu_;
@@ -1303,7 +1316,7 @@ private:
             auto it = peers_.find(c);
             if (it == peers_.end()) return;
             ip = it->second.addr.ip;
-            banned_[ip] = node_now_s() + 3600;
+            banned_[rate_key(ip)] = node_now_s() + 3600;
         }
         LOG_WARN("banning peer %s: %s", ip.c_str(), why.c_str());
         ep_->close(c, "banned: " + why);
@@ -1312,10 +1325,17 @@ private:
     // Requests from peers (peer/task.rs)
     void on_request(quic::ConnId c, int64_t stream, Bytes payload)
     {
+        std::string peer_ip;
         {
+            // fail closed: a connection we do not know as connected, or a banned one, is closed
             std::lock_guard<std::mutex> l(peers_mu_);
             auto it = peers_.find(c);
-            if (it != peers_.end() && ban_active(banned_, it->second.addr.ip, node_now_s())) {
+            if (it == peers_.end() || !it->second.connected) {
+                ep_->close(c, "unknown connection");
+                return;
+            }
+            peer_ip = it->second.addr.ip;
+            if (ban_active(banned_, peer_ip, node_now_s())) {
                 ep_->close(c, "banned");
                 return;
             }
@@ -1342,7 +1362,9 @@ private:
             bool changed;
             {
                 std::lock_guard<std::mutex> l(peers_mu_);
-                auto& p = peers_[c];
+                auto it = peers_.find(c);
+                if (it == peers_.end()) return; // gone meanwhile: never create entries here
+                auto& p = it->second;
                 Writer a, b;
                 if (p.state) encode_peer_state(a, *p.state);
                 encode_peer_state(b, q.heartbeat);
@@ -1379,9 +1401,8 @@ private:
         case P2PT::Request::GetHeaders: {
             {
                 std::lock_guard<std::mutex> l(peers_mu_);
-                auto it = peers_.find(c);
-                if (it != peers_.end() && !headers_budgets_.take(it->second.addr.ip, node_now_s())) {
-                    LOG_WARN("peer %s: too many GetHeaders requests", it->second.addr.to_string().c_str());
+                if (!headers_budgets_.take(peer_ip, node_now_s())) { // charged by IP, whatever the connection
+                    LOG_WARN("peer %s: too many GetHeaders requests", peer_ip.c_str());
                     ep_->close(c, "too many GetHeaders requests");
                     return;
                 }
@@ -1457,7 +1478,7 @@ private:
         // a peer tip whose main block is not on our side tips' mainchain is ignored (no ban)
         if (!side_tips_peer_tip_relevant(t, archive_, side_tips_, pt.tip.main_block_hash)) return;
         if (archive_.header(t, pt.tip.block_hash)) {
-            request_bodies(c, pt);
+            start_body_chain(c, pt);
             return;
         }
         typename P2PT::Request q;
@@ -1497,9 +1518,30 @@ private:
                 return;
             }
         }
-        request_bodies(c, target);
+        start_body_chain(c, target);
     }
 
+    /** At most one request_bodies chain per peer (review 2026-10-22). */
+    void start_body_chain(quic::ConnId c, const TipInfo& target)
+    {
+        {
+            std::lock_guard<std::mutex> l(peers_mu_);
+            auto it = peers_.find(c);
+            if (it == peers_.end() || it->second.bodies_chain) return;
+            it->second.bodies_chain = true;
+        }
+        request_bodies(c, target);
+    }
+    void end_body_chain(quic::ConnId c)
+    {
+        std::lock_guard<std::mutex> l(peers_mu_);
+        auto it = peers_.find(c);
+        if (it != peers_.end()) it->second.bodies_chain = false;
+    }
+
+    /** Fetch the bodies missing below the peer's tip, 100 per round, then reorg. Only bodies actually
+     *  stored count as progress: a round in which none arrived (NoBlock, wrong block, timeout) ends
+     *  the chain and closes the connection (review 2026-10-22: a peer could keep us looping). */
     void request_bodies(quic::ConnId c, const TipInfo& target)
     {
         std::vector<Hash32> missing;
@@ -1511,6 +1553,7 @@ private:
             missing = archive_.missing_bodies(t, target.tip.block_hash, common);
         }
         if (missing.empty()) {
+            end_body_chain(c);
             try {
                 TipRef nt{target.tip.block_hash, target.tip.main_block_hash};
                 bool ready;
@@ -1529,12 +1572,14 @@ private:
         }
         size_t n = std::min<size_t>(missing.size(), 100);
         auto remaining = std::make_shared<std::atomic<size_t>>(n);
+        auto stored = std::make_shared<std::atomic<size_t>>(0);
+        auto banned = std::make_shared<std::atomic<bool>>(false);
         for (size_t i = 0; i < n; i++) {
             typename P2PT::Request q;
             q.kind = P2PT::Request::GetBlock;
             q.block_hash = missing[i];
             Hash32 want = missing[i];
-            send_request(c, q, BLOCK_RESPONSE_LIMIT, [this, c, target, want, remaining](std::optional<typename P2PT::Response> r) {
+            send_request(c, q, BLOCK_RESPONSE_LIMIT, [this, c, target, want, remaining, stored, banned](std::optional<typename P2PT::Response> r) {
                 std::string why;
                 if (r && r->kind == P2PT::Response::Block && C::hash(r->header) == want) {
                     BT_NODE_LOCKED;
@@ -1544,18 +1589,26 @@ private:
                             try {
                                 put_body_(t, want, r->body);
                                 t.commit();
+                                ++*stored;
                             } catch (const std::exception& e) {
                                 LOG_WARN("cannot store body %s: %s", hex_encode(want).c_str(), e.what());
                             }
                         }
                     }
                 }
-                if (!why.empty()) { // outside the node lock
+                if (!why.empty() && !banned->exchange(true)) { // outside the node lock
                     LOG_WARN("invalid body for %s from peer: %s", hex_encode(want).c_str(), why.c_str());
                     ban(c, "InvalidBody: " + why);
+                }
+                if (--*remaining != 0) return;
+                if (*banned) return; // the connection is gone with its chain
+                if (*stored == 0) {
+                    end_body_chain(c);
+                    LOG_INFO("peer: no block body delivered in a round; giving up on its tip");
+                    ep_->close(c, "no block bodies delivered");
                     return;
                 }
-                if (--*remaining == 0) request_bodies(c, target);
+                request_bodies(c, target);
             });
         }
     }
