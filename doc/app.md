@@ -20,7 +20,7 @@ Each chain's own part is in its repository's `doc/app.md` (its pages, its host m
    ├─ LayerTwo JSON-RPC (as LayerTwo's: 127.0.0.1:<rpc port>, no auth)          ← L2L tools, unchanged
    └─ app layer (libs/appui), only with --bt-app-rpc-port:
         app RPC: webuihost, describeconfirmation, webuievents, webuichosenfile (the template's remote-host protocol,
-                 HOST_API 1), the LayerTwo reads the pages use (the same handlers, the same JSON), a few Core-style reads
+                 HOST_API 1), appserverproof, the LayerTwo reads the pages use (the same handlers, the same JSON), a few Core-style reads
                  (getblockchaininfo, getbalances, getnetworkinfo, getmainchaininfo, uptime), the unified wallet's
                  phrase setup (getwalletphraseinfo, setwalletphrase), getappmanifest, stop
 
@@ -68,7 +68,11 @@ The cookie `<datadir>/backbone-app.cookie` (`__cookie__:<64 hex>`) is made atomi
 Windows `CREATE_NEW` with an owner-only DACL, fsync, rename; a link or a folder in its place is refused) and deleted at
 shutdown; the cookie user may call everything (the unified wallet's supervisor). The server: HTTP/1.1, Bitcoin Core
 JSON-RPC 1.0/2.0 envelopes, batches of at most 1000, a request body of at most 16 MB, no Transfer-Encoding, the Host
-header loopback only, any Origin refused (no browser may call it), 401 after 250 ms, at most 32 connections.
+header loopback only, any Origin refused (no browser may call it), at most 32 connections; the caller authenticated
+from its headers before its body is read (401 after 250 ms and the connection closed), a connection not yet
+authenticated held at most 10 s; sockets close-on-exec. `appserverproof [challenge]` answers
+hex(HMAC-SHA256(cookie secret, "bt-app-server-proof/v1" 0x00 challenge)): the app checks with the cookie it reads from
+the node's data folder that the program on the port it chose is its node, before it shows anything from it.
 
 **Host methods and their privileges.** A user may run a host method when its whitelist names it, or names every
 LayerTwo method it exercises (`ChainHost::privileges`, the template's rule). The shared ones:
@@ -184,7 +188,10 @@ the node and asked in a trusted dialog, bound to a one-time token; no secret to 
 ownership flags filtered by privilege; files only those the user chose in the app's chooser (held open from the choice,
 `O_NOFOLLOW`, new files `O_EXCL`). Residuals, by design of the drop-in: the LayerTwo JSON-RPC stays as LayerTwo has it
 (no auth, every wallet method) on 127.0.0.1, for LayerTwo's tools; any local process of the user can spend through
-it, with or without our app. The wallet's seed is unencrypted at rest (LayerTwo's wallets), shown in Settings → Wallet.
+it, with or without our app. The wallet's seed is unencrypted at rest (LayerTwo's wallets), shown in Settings → Wallet;
+a phrase made or restored through the app is also kept in `<datadir>/backbone-app.sqlite` (0600) to be shown again.
+In memory, the phrase's copies are wiped on every exit path (`WipeOnExit`), the request texts and HTTP bodies after
+use, and a token keeps only its request's hash.
 
 ## 6. Tests
 
