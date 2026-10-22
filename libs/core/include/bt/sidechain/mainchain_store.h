@@ -38,6 +38,7 @@ struct MainHeader {
     uint32_t height = 0;
     U256 work, total_work;
     Hash32 skip; // ancestor used for O(log n) nth-ancestor jumps
+    uint64_t timestamp = 0; // BlockHeaderInfo.timestamp (0 in records written before it was kept)
 };
 
 /** A sidechain tip and the mainchain block that commits to it (types/lib.rs Tip). */
