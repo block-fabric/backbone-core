@@ -152,6 +152,18 @@ std::optional<uint64_t> parse_coins(const std::string& text)
     return total + f;
 }
 
+uint64_t spend_total(std::initializer_list<uint64_t> parts)
+{
+    uint64_t total{0};
+    for (const uint64_t part : parts) {
+        if (part > MAX_MONEY) throw HostError(HOST_INVALID_REQUEST, "amount overflow: more than 21,000,000 ECX");
+        uint64_t next{0};
+        if (__builtin_add_overflow(total, part, &next) || next > MAX_MONEY) throw HostError(HOST_INVALID_REQUEST, "amount overflow: more than 21,000,000 ECX");
+        total = next;
+    }
+    return total;
+}
+
 UniValue coins_value(uint64_t sats)
 {
     UniValue v;

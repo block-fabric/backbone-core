@@ -4,6 +4,7 @@
 #include "test.h"
 
 #include <bt/appui/auth.h>
+#include <bt/appui/dropin.h>
 #include <bt/appui/host.h>
 #include <bt/appui/phrase.h>
 #include <bt/appui/rpcserver.h>
@@ -437,6 +438,31 @@ TEST(appui_chosen_files_canonical_once_through_what_was_opened)
     const std::string late{files.grant(dir + "/late.txt", true, false, "app", now)};
     CHECK(!files.take(late, "app", now + ChosenFiles::EXPIRY + std::chrono::seconds{1}));
     std::filesystem::remove_all(dir);
+}
+
+TEST(appui_spend_total_checks_each_addition_and_max_money)
+{
+    const auto refused{[](std::initializer_list<uint64_t> parts) {
+        try {
+            spend_total(parts);
+        } catch (const HostError& e) {
+            return std::string{e.what()}.find("amount overflow") != std::string::npos;
+        }
+        return false;
+    }};
+    CHECK_EQ(spend_total({100, 1000, 1000}), uint64_t{2100});
+    CHECK_EQ(spend_total({MAX_MONEY}), MAX_MONEY);
+    CHECK_EQ(spend_total({MAX_MONEY - 1, 1}), MAX_MONEY);
+    // A sum of three that wraps past its first part and still looks larger than it: 2^63 + 2^63 + (2^63 + 1).
+    const uint64_t half{uint64_t{1} << 63};
+    CHECK(refused({half, half, half + 1}));
+    CHECK(refused({UINT64_MAX, 1}));
+    CHECK(refused({UINT64_MAX - 9, 5, 20}));
+    CHECK(refused({1, UINT64_MAX}));
+    // Each part and the sum at most 21,000,000 ECX.
+    CHECK(refused({MAX_MONEY + 1}));
+    CHECK(refused({MAX_MONEY, 1}));
+    CHECK(refused({0, 0, MAX_MONEY + 1}));
 }
 
 TEST(appui_bip85_vectors_and_dropin_phrases)

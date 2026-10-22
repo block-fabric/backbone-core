@@ -17,6 +17,7 @@
 #include <atomic>
 #include <chrono>
 #include <functional>
+#include <initializer_list>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -53,6 +54,15 @@ std::string format_sats(uint64_t sats);
 std::optional<uint64_t> parse_coins(const std::string& text);
 /** A JSON number of coins (the kit's getbalances: coins as numbers), from satoshis. */
 UniValue coins_value(uint64_t sats);
+
+/** The most any amount of a spend may be: 21,000,000 ECX in satoshis (eCash's supply, as Bitcoin's). */
+inline constexpr uint64_t MAX_MONEY{21'000'000ULL * 100'000'000ULL};
+/**
+ * The sum of the parts of a spend (amounts, fees), each and the sum at most MAX_MONEY, every addition checked on its
+ * own (a sum of three can wrap past its first part and still look larger than it). Throws HostError "amount overflow".
+ * What a question shows and what the balance check sees is this sum, never a wrapped one.
+ */
+uint64_t spend_total(std::initializer_list<uint64_t> parts);
 
 /**
  * The link of the node to its mainchain (the enforcer's gRPC, or backboned -grpc), looked at every few seconds with
