@@ -18,7 +18,7 @@
   import AddressField from './AddressField.svelte';
   import SetupWallet from './SetupWallet.svelte';
   import { confirmed, dropin, sats, satsNumber, type PegInfo, type Withdrawal } from './api';
-  import { SPEND } from './spend';
+  import { DEPOSIT_NOTE, SPEND } from './spend';
   import { linkState, linkText } from './link';
   import { drop, follow, refresh } from './store.svelte';
 
@@ -163,6 +163,7 @@
             <div class="qr"><QrCode text={depositTo.depositAddress} size={168} label={t('QR code of the deposit address')} /></div>
             <div class="row copyrow"><span class="mono break">{depositTo.depositAddress}</span><CopyButton text={depositTo.depositAddress} label={t('Copy the deposit address')} /></div>
           {/if}
+          {#if DEPOSIT_NOTE}<p class="hint deposit-note"><Icon name="info" size={14} /> {t(DEPOSIT_NOTE)}</p>{/if}
         </div>
       </section>
       <section class="panel" aria-labelledby="dep-node">

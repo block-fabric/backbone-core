@@ -11,6 +11,7 @@
   import { goTo } from '../../lib/nav.svelte';
   import { dropin, sats, type HistoryRow, type TxDetail } from './api';
   import { kindText } from './kinds';
+  import { rowFacts } from './spend';
 
   let { row = $bindable(null) }: { row?: HistoryRow | null } = $props();
   let open = $state(false);
@@ -39,6 +40,7 @@
       {#if row.mainAddress}<dt>{t('eCash address')}</dt><dd class="mono break">{row.mainAddress}</dd>{/if}
       {#if row.names?.length}<dt>{t('Names')}</dt><dd class="break"><SafeText text={row.names.join(', ')} /></dd>{/if}
       {#if row.reservedName}<dt>{t('Reserved name')}</dt><dd class="break"><SafeText text={row.reservedName} /></dd>{/if}
+      {#each rowFacts(row) as f (f.label)}<dt>{t(f.label)}</dt><dd class:mono={f.mono} class="break"><SafeText text={f.value} /></dd>{/each}
       {#if row.fee !== undefined}<dt>{t('Fee')}</dt><dd><Amount sats={sats(row.fee)} /></dd>{/if}
       <dt>{t('Status')}</dt><dd>{row.pending ? t('Waiting for a block') : detail?.confirmations ? t('%1 confirmations', formatCount(detail.confirmations)) : row.bundleStatus ?? t('In a block')}</dd>
       {#if row.height !== null}<dt>{t('Block')}</dt><dd class="num">{formatCount(row.height)}{#if row.approxTime} <span class="faint">({t('first seen')})</span>{/if}</dd>{/if}
@@ -48,7 +50,7 @@
       {#if row.kind === 'deposit'}<dt>{t('eCash transaction')}</dt><dd class="mono break">{row.id.replace(/^deposit:/, '')}</dd>{/if}
     </dl>
     {#if detail}
-      <h3>{t('Outputs')}</h3>
+      {#if detail.outputs.length}<h3>{t('Outputs')}</h3>{/if}
       <ul class="outs">
         {#each detail.outputs as o, i (i)}
           <li>

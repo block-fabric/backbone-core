@@ -73,6 +73,9 @@ class Chain:
     # A's wallet addresses (the reads below take them), and the reads with them and its tip.
     wallet_addresses: Callable[[JsonRpc], list] = lambda a: a.get_wallet_addresses()  # noqa: E731
     base_reads: Callable[[JsonRpc, list], list] = thunder_reads
+    # More arguments of node B only (zSide: its app layer, to send a memo back); more of window.__E2E from node B.
+    peer_args: Callable[["Run"], list] | None = None
+    e2e_extra: Callable[[JsonRpc], dict] | None = None
 
 
 @dataclass
@@ -81,6 +84,7 @@ class Run:
     b: JsonRpc
     main: Mainchain
     base: Path
+    port: int = 0  # the base port: node B's app RPC (when it has one) at port + 27
 
 
 def main(chain: Chain, argv=None):
@@ -111,8 +115,9 @@ def main(chain: Chain, argv=None):
         grpc_url = f"http://127.0.0.1:{P + 13}"
 
         print("== node B (the other side)", flush=True)
+        peer_args = chain.peer_args(Run(None, None, main_chain, base, P)) if chain.peer_args else []
         procs.spawn(f"{chain.stem}B", [node, "--network", "regtest", chain.datadir_flag, base / "B", chain.url_flag, grpc_url] + chain.addresses(P + 25, P + 26) +
-                    ["--bt-no-seeds", "--add-peer", f"127.0.0.1:{P + 21}", "--log-level", "INFO"] + chain.node_args)
+                    ["--bt-no-seeds", "--add-peer", f"127.0.0.1:{P + 21}", "--log-level", "INFO"] + chain.node_args + peer_args)
         b = JsonRpc(P + 25, version="2.0")
         wait_for(lambda: b.getblockcount() is not None, "node B", 60)
         peer_address = chain.peer_setup(b)
@@ -120,7 +125,10 @@ def main(chain: Chain, argv=None):
         print(f"== {chain.stem}-app (node A) in a virtual display", flush=True)
         main_address = main_chain.wallet.getnewaddress()
         save_file = base / "saved-backup-phrase.txt"
-        prelude = f"window.__E2E = {json.dumps({'peerAddress': peer_address, 'mainAddress': main_address, 'saveFile': str(save_file)})};\n"
+        e2e = {'peerAddress': peer_address, 'mainAddress': main_address, 'saveFile': str(save_file)}
+        if chain.e2e_extra:
+            e2e.update(chain.e2e_extra(b))
+        prelude = f"window.__E2E = {json.dumps(e2e)};\n"
         script = base / "app.js"
         script.write_text(prelude + (HERE / "common.js").read_text() + "\n" + chain.script.read_text())
         home = base / "home"
@@ -136,7 +144,7 @@ def main(chain: Chain, argv=None):
         app = procs.spawn(f"{chain.stem}-app", app_cmd, env=env)
         a = JsonRpc(P + 20, version="2.0")
         wait_for(lambda: a.getblockcount() is not None, "node A (run by the app)", 120)
-        run = Run(a, b, main_chain, base)
+        run = Run(a, b, main_chain, base, P)
 
         def miner():
             # A block of the chain every few seconds while the run lasts (A's LayerTwo `mine`; Backbone's wallet bids).

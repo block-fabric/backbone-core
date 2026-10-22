@@ -7,7 +7,7 @@
   import { t } from '../../lib/i18n.svelte';
   import { goTo } from '../../lib/nav.svelte';
   import { sats, type HistoryRow } from './api';
-  import { counterparty, kindIcon, kindText } from './kinds';
+  import { counterparty, kindIcon, kindText, lineIsText } from './kinds';
 
   let { rows, now = Math.floor(Date.now() / 1000), empty }: { rows: HistoryRow[]; now?: number; empty: string } = $props();
 </script>
@@ -22,7 +22,8 @@
           <span class="ico {row.amount > 0 ? 'in' : row.amount < 0 ? 'out' : ''}"><Icon name={kindIcon(row)} size={16} /></span>
           <span class="what">
             <strong>{kindText(row)}</strong>
-            <SafeText class="mono faint" text={counterparty(row) ? shortHash(counterparty(row), 10) : row.txid ? shortHash(row.txid, 8) : ''} />
+            {#if lineIsText(row)}<SafeText class="faint" text={counterparty(row)} />
+            {:else}<SafeText class="mono faint" text={counterparty(row) ? shortHash(counterparty(row), 10) : row.txid ? shortHash(row.txid, 8) : ''} />{/if}
           </span>
           <span class="when muted">
             {#if row.pending}<span class="badge warning">{t('pending')}</span>

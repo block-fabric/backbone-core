@@ -60,7 +60,14 @@ export function kindIcon(row: Pick<HistoryRow, 'kind'>): IconName {
 }
 
 /** The other side of a row, for its line: who was paid, or the eCash address of a withdrawal. */
+/** Whether the row's other side is words of the chain's (a kind's own `line`), not an address or a hash to shorten. */
+export function lineIsText(row: Pick<HistoryRow, 'kind'>): boolean {
+  return !!LOCAL_KINDS[row.kind]?.line;
+}
+
 export function counterparty(row: HistoryRow): string {
+  const local = LOCAL_KINDS[row.kind];
+  if (local?.line) return local.line(row);
   if (row.kind === 'withdrawal' || row.kind === 'bundle') return row.mainAddress ?? row.m6id ?? '';
   // A name's row: the name, in words when the wallet knows them.
   if (row.names?.length) return row.names.join(', ');

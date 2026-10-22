@@ -12,6 +12,7 @@
   import { go } from '../../lib/nav.svelte';
   import { mainLink } from '../../lib/mainlink.svelte';
   import { sats } from './api';
+  import { BALANCE_TITLE } from './spend';
   import ActivityList from './ActivityList.svelte';
   import SetupWallet from './SetupWallet.svelte';
   import { drop, follow, wantHistory } from './store.svelte';
@@ -44,7 +45,7 @@
   {/if}
 
   <div class="cards">
-    <Card title={t('Balance')} icon="wallet" open={() => go('overview')} openLabel={t('Open the overview')} stat>
+    <Card title={t(BALANCE_TITLE)} icon="wallet" open={() => go('overview')} openLabel={t('Open the overview')} stat>
       {#if w && hasSeed}
         <div class="big"><Amount sats={sats(w.available)} /></div>
         <dl class="facts">

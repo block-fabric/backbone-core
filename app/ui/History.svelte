@@ -19,6 +19,7 @@
   import TxDialog from './TxDialog.svelte';
   import { sats, type HistoryRow } from './api';
   import { activityCsv, counterparty, kindText } from './kinds';
+  import { LOCAL_KINDS } from './spend';
   import { drop, follow, wantHistory } from './store.svelte';
 
   $effect(() => follow());
@@ -55,6 +56,7 @@
     { id: 'withdrawal', label: 'Withdrawals' },
     { id: 'bundle', label: 'Bundles' },
     { id: 'mined', label: 'Block fees' },
+    ...Object.entries(LOCAL_KINDS).flatMap(([id, k]) => (k.filter ? [{ id, label: k.filter }] : [])),
   ];
 
   async function exportCsv() {
