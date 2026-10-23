@@ -38,8 +38,9 @@ struct ChainSpec {
     /** The folder name of LayerTwo's data directory (<data_dir>/<name>: plain_bitassets, truthcoin_dc...), when
      *  default_datadir is not given; empty: the stem. */
     std::string datadir_name;
-    /** How the node takes its addresses: "addr" (--rpc-addr/--private-rpc-addr host:port, Thunder's) or "host-port"
-     *  (--rpc-host/--rpc-port and --private-rpc-host/--private-rpc-port, plain-bitassets'). --net-addr in both. */
+    /** How the node takes its addresses: "addr" (--rpc-addr/--private-rpc-addr host:port, Thunder's), "rpc-addr"
+     *  (--rpc-addr only, coinshift-rs') or "host-port" (--rpc-host/--rpc-port and --private-rpc-host/--private-rpc-port,
+     *  plain-bitassets'). --net-addr in all. */
     std::string address_flags{"addr"};
     /** What the app's user may call at the node: the chain's manifest (reads, confirmed and host methods, protocol). */
     std::vector<std::string> whitelist;

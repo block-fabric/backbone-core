@@ -553,6 +553,9 @@ bool App::StartNode(std::string& err)
     if (m_spec.address_flags == "host-port") {
         args.insert(args.end(), {"--rpc-host", "127.0.0.1", "--rpc-port", strprintf("%u", s.rpc_port), "--private-rpc-host", "127.0.0.1",
                                  "--private-rpc-port", strprintf("%u", s.rpc_port)});
+    } else if (m_spec.address_flags == "rpc-addr") {
+        // One server only (coinshift-rs: --rpc-addr, no private one).
+        args.insert(args.end(), {"--rpc-addr", strprintf("127.0.0.1:%u", s.rpc_port)});
     } else {
         args.insert(args.end(), {"--rpc-addr", strprintf("127.0.0.1:%u", s.rpc_port), "--private-rpc-addr", strprintf("127.0.0.1:%u", s.rpc_port)});
     }

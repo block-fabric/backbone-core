@@ -140,7 +140,8 @@ function(bt_desktop_app target)
   string(JSON rpc_port GET "${manifest}" rpcPort)
   string(JSON p2p_port GET "${manifest}" p2pPort)
   # The node's program when it is not the stem (zSide's thunder-orchard), LayerTwo's data folder name, how the node
-  # takes its RPC addresses ("addr": --rpc-addr host:port; "host-port": --rpc-host and --rpc-port).
+  # takes its RPC addresses ("addr": --rpc-addr and --private-rpc-addr host:port; "rpc-addr": --rpc-addr only (Coinshift);
+  # "host-port": --rpc-host and --rpc-port).
   string(JSON program ERROR_VARIABLE no_program GET "${manifest}" program)
   if(no_program)
     set(program "${A_STEM}")
@@ -153,8 +154,8 @@ function(bt_desktop_app target)
   if(no_address_flags)
     set(address_flags "addr")
   endif()
-  if(NOT program MATCHES "^[A-Za-z0-9_-]+$" OR NOT datadir_name MATCHES "^[A-Za-z0-9_.-]+$" OR NOT address_flags MATCHES "^(addr|host-port)$")
-    message(FATAL_ERROR "${A_MANIFEST}: program, datadirName (names) or addressFlags (addr or host-port) is not right")
+  if(NOT program MATCHES "^[A-Za-z0-9_-]+$" OR NOT datadir_name MATCHES "^[A-Za-z0-9_.-]+$" OR NOT address_flags MATCHES "^(addr|rpc-addr|host-port)$")
+    message(FATAL_ERROR "${A_MANIFEST}: program, datadirName (names) or addressFlags (addr, rpc-addr or host-port) is not right")
   endif()
   file(WRITE "${gen}/app_manifest.h.new"
        "// Made from ${A_MANIFEST} by core/cmake/BtDesktopApp.cmake.\n#pragma once\n#include <string>\n#include <vector>\n"
