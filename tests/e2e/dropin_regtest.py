@@ -63,11 +63,12 @@ class Procs:
         p = self.procs.pop(name, None)
         if p is None or p.poll() is not None:
             return
-        os.kill(p.pid, signal.SIGTERM)
+        # Its own process group (start_new_session): what it started with it goes too (xvfb-run's app and the app's node).
+        os.killpg(p.pid, signal.SIGTERM)
         try:
             p.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
-            os.kill(p.pid, signal.SIGKILL)
+            os.killpg(p.pid, signal.SIGKILL)
             p.wait()
 
     def stop_all(self):
