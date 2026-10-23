@@ -703,3 +703,16 @@ TEST(appui_display_text_refuses_controls_format_and_invisible_code_points)
         CHECK_EQ(bt::appui::display_text_problem(bad), std::string{"Not valid UTF-8 text"});
     }
 }
+
+TEST(appui_display_text_shown_writes_what_it_would_refuse)
+{
+    // Text of the chain someone else chose, in a trusted dialog: as it is when it may be shown, else every refused code
+    // point and every byte that is not UTF-8 written out, the rest kept.
+    CHECK_EQ(bt::appui::display_text_shown("Will it rain?"), std::string{"Will it rain?"});
+    CHECK_EQ(bt::appui::display_text_shown("caf\xc3\xa9 \xf0\x9f\x98\x80"), std::string{"caf\xc3\xa9 \xf0\x9f\x98\x80"});
+    CHECK_EQ(bt::appui::display_text_shown("Yes\xe2\x80\xaeoN"), std::string{"Yes<U+202E>oN"});
+    CHECK_EQ(bt::appui::display_text_shown("a\nb\x7f"), std::string{"a<U+000A>b<U+007F>"});
+    CHECK_EQ(bt::appui::display_text_shown("x\xffy\xc3"), std::string{"x<0xFF>y<0xC3>"});
+    CHECK_EQ(bt::appui::display_text_shown("\xed\xa0\x80z"), std::string{"<0xED><0xA0><0x80>z"});
+    for (const char* s : {"Yes\xe2\x80\xaeoN", "a\nb", "x\xffy", "\xe2\x80\x8b", "\xc0\xaf"}) CHECK(bt::appui::display_text_problem(bt::appui::display_text_shown(s)).empty());
+}
