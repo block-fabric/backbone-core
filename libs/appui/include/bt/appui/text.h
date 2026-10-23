@@ -19,6 +19,11 @@ namespace bt::appui {
 /** "" when `text` may be shown in a trusted dialog, else why not (in English, with the code point). */
 std::string display_text_problem(std::string_view text);
 
+/** Text of the chain that someone else chose (a market's title, a decision's question, a swap's L1 address), as a trusted
+ *  dialog may show it: itself when display_text_problem takes it, else each refused code point written as <U+XXXX>
+ *  (a byte that is not UTF-8 as <0xXX>), so that the dialog shows what is there and nothing turns or hides it. */
+std::string display_text_shown(std::string_view text);
+
 /** Whether a code point is one display_text_problem refuses. */
 bool display_text_refused(uint32_t code_point);
 
