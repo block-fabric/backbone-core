@@ -76,6 +76,9 @@ class Chain:
     # More arguments of node B only (zSide: its app layer, to send a memo back); more of window.__E2E from node B.
     peer_args: Callable[["Run"], list] | None = None
     e2e_extra: Callable[[JsonRpc], dict] | None = None
+    # Whether the page withdraws to eCash and the runner checks it was paid (Coinshift: no; its bundles follow a known
+    # upstream behaviour, reproduced).
+    withdrawal: bool = True
 
 
 @dataclass
@@ -201,10 +204,11 @@ def main(chain: Chain, argv=None):
         stop_miner.set()
         time.sleep(4)
         # The withdrawal paid on eCash: Backbone's wallet received it.
-        received = main_chain.wallet.getreceivedbyaddress(main_address, 0)
-        print(f"== eCash received {received} ECX from the withdrawal", flush=True)
-        if float(received) < 2:
-            failures.append(f"the withdrawal's eCash address received {received}")
+        if chain.withdrawal:
+            received = main_chain.wallet.getreceivedbyaddress(main_address, 0)
+            print(f"== eCash received {received} ECX from the withdrawal", flush=True)
+            if float(received) < 2:
+                failures.append(f"the withdrawal's eCash address received {received}")
 
         print("== the LayerTwo RPC of A's data, without and with the app layer", flush=True)
         procs.procs.pop(f"{chain.stem}-app", None)
