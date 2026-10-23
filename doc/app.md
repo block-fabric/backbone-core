@@ -1,6 +1,6 @@
 # The app of a drop-in chain
 
-The drop-in nodes (Thunder, BitNames, and later zSide, BitAssets, Hivemind) are LayerTwo-Labs compatible: same
+The drop-in nodes (Thunder, BitNames, zSide, BitAssets, Hivemind, Coinshift) are LayerTwo-Labs compatible: same
 consensus, same P2P, same JSON-RPC, byte for byte. This document is the design of the app we put on them: our
 sidechain app (the sidechain template's window, trusted dialog and Svelte kit, with pages for the drop-in's own data
 model), as a standalone `<stem>-app` and as a pack the unified wallet loads. Consensus and the LayerTwo JSON-RPC are
@@ -193,6 +193,12 @@ a phrase made or restored through the app is also kept in `<datadir>/backbone-ap
 In memory, the phrase's copies are wiped on every exit path (`WipeOnExit`), the request texts and HTTP bodies after
 use, and a token keeps only its request's hash.
 
+Text a trusted dialog shows: what the user gives (a memo, a name, a market's title) must pass `display_text_problem`
+(valid UTF-8, no control, format, separator, private-use, unassigned or default-ignorable code point; the pages check
+the same with `app/ui/text.ts`); text of the chain that someone else chose (a market's title, a decision's question, a
+swap's L1 address) is shown as `display_text_shown` writes it, every code point that rule refuses (and every byte that
+is not UTF-8) spelled out, so that nothing in a question turns or hides what it says.
+
 ## 6. Tests
 
 - `tests/test_appui.cpp`: auth, whitelist, envelopes, the cookie (0600, a link refused), tokens (replay, a changed
@@ -213,7 +219,7 @@ the apps cross-compile (`-DBT_BUILD_APP=ON -DWEBVIEW2_INCLUDE_DIR=<the WebView2 
 build's include/webview2>`); the app's child is a `CreateProcess` in a kill-on-close Job, the cookie gets an owner-only
 DACL; not yet run on Windows. macOS: not built.
 
-## 8. Adding a drop-in chain (zSide, BitAssets, Hivemind)
+## 8. Adding a drop-in chain
 
 1. `chains/<stem>/src/appui.cpp`: an `AppLayer` like Thunder's (the shared `bt::appui::dropin` helpers: options,
    link monitor, store, poller), its describers for its spends, its host methods `<stem>.*` with their privileges.
@@ -223,11 +229,12 @@ DACL; not yet run on Windows. macOS: not built.
    The manifest also says, when they differ from Thunder's: `program` (the node's program, LayerTwo's name: zSide's
    `thunder-orchard`, Hivemind's `truthcoin`; the app stays `<stem>-app`), `datadirName` (LayerTwo's data folder,
    `<data_dir>/<datadirName>`: the app's default is the node's own), `addressFlags` (`addr`: `--rpc-addr` and
-   `--private-rpc-addr` host:port; `host-port`: plain-bitassets' `--rpc-host`/`--rpc-port` and the private pair) and
-   `mainchainUrlFlag`; `main.cpp` puts them in the `ChainSpec`. `dropin.config.ts` may name the chain's own spends
+   `--private-rpc-addr` host:port; `rpc-addr`: coinshift-rs' one server, `--rpc-addr` only; `host-port`: plain-bitassets'
+   `--rpc-host`/`--rpc-port` and the private pair) and `mainchainUrlFlag`; `main.cpp` puts them in the `ChainSpec`. `dropin.config.ts` may name the chain's own spends
    for the shared Send and Drivechains pages (`spend: {transfer, deposit, withdraw}`, LayerTwo's names, the parameters
    in the same order: BitAssets' `transfer`/`withdraw`, zSide's `create_transparent_transfer`) and the words and icon
    of its own kinds of activity rows (`kinds`), `app/ui/spend.ts`.
 4. Tests as above; `tests/e2e/run_app.py` giving `dropin_app.Chain` its slot, script, reads and signals, and where it
    differs from Thunder: its `program`, `datadir_flag`, `addresses` (`addr_flags`/`host_port_flags`), node B's
-   `peer_setup`/`peer_available`/`peer_pay`, `wallet_addresses` and `base_reads`.
+   `peer_setup`/`peer_available`/`peer_pay`, `wallet_addresses` and `base_reads`, `peer_args` (more of node B, or a
+   service the run needs first: Coinshift's L1 node), and `withdrawal` (Coinshift: False, its run asks none).
