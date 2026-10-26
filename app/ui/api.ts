@@ -155,6 +155,9 @@ export interface Peer {
   address: string;
   connected: boolean;
   inbound: boolean;
+  /** From the peer's QUIC certificate: "<Name> <version>" for a Backbone drop-in, "unknown (upstream)",
+   *  "unknown" for an inbound peer (no certificate); empty until connected. */
+  name?: string;
 }
 
 export interface NodeSettings {

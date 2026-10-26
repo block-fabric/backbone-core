@@ -158,6 +158,8 @@ struct Endpoint::Impl {
     std::map<ConnId, std::unique_ptr<Conn>> conns;
     std::unordered_map<std::string, ConnId> cid_map;
     std::atomic<ConnId> next_id{1};
+    mutable std::mutex names_mu;
+    std::map<ConnId, std::string> names; // peer names of connections past their handshake
 
     void post(std::function<void()> f)
     {
@@ -256,10 +258,44 @@ static int remove_cid_cb(ngtcp2_conn*, const ngtcp2_cid* cid, void* ud)
     return 0;
 }
 
+static std::optional<std::string> x509_cn(X509* x)
+{
+    X509_NAME* n = X509_get_subject_name(x);
+    int i = n ? X509_NAME_get_index_by_NID(n, NID_commonName, -1) : -1;
+    if (i < 0) return std::nullopt;
+    ASN1_STRING* d = X509_NAME_ENTRY_get_data(X509_NAME_get_entry(n, i));
+    unsigned char* u = nullptr;
+    int len = d ? ASN1_STRING_to_UTF8(&u, d) : -1;
+    if (len < 0) return std::nullopt;
+    std::string r(reinterpret_cast<char*>(u), size_t(len));
+    OPENSSL_free(u);
+    return r;
+}
+
+std::optional<std::string> certificate_cn(ByteSpan der)
+{
+    const unsigned char* p = der.data();
+    X509* x = d2i_X509(nullptr, &p, long(der.size()));
+    if (!x) return std::nullopt;
+    auto r = x509_cn(x);
+    X509_free(x);
+    return r;
+}
+
 static int handshake_completed_cb(ngtcp2_conn*, void* ud)
 {
     auto* c = (Conn*)ud;
     c->handshake_done = true;
+    std::string name = PEER_NAME_INBOUND;
+    if (!c->inbound) {
+        std::optional<std::string> cn;
+        if (X509* pc = SSL_get0_peer_certificate(c->ssl)) cn = x509_cn(pc);
+        name = peer_name_from_cn(cn);
+    }
+    {
+        std::lock_guard<std::mutex> l(c->ep->names_mu);
+        c->ep->names[c->id] = std::move(name);
+    }
     if (c->ep->cb.on_connected) c->ep->cb.on_connected(c->id, c->remote_s, c->inbound);
     c->open_pending();
     return 0;
@@ -392,7 +428,7 @@ bool Endpoint::Impl::make_cert()
     X509_gmtime_adj(X509_getm_notAfter(cert), 60L * 60 * 24 * 365 * 4000 / 1000); // ~4 years
     X509_set_pubkey(cert, key);
     X509_NAME* name = X509_get_subject_name(cert);
-    X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC, (const unsigned char*)"rcgen self signed cert", -1, -1, 0);
+    X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC, (const unsigned char*)agent_cert_cn(opt.agent).c_str(), -1, -1, 0);
     X509_set_issuer_name(cert, name);
     std::string san = "DNS:localhost";
     for (auto& n : opt.server_names)
@@ -489,6 +525,10 @@ void Endpoint::stop()
         if (m->thr.joinable()) m->thr.join();
     }
     m->conns.clear();
+    {
+        std::lock_guard<std::mutex> l(m->names_mu);
+        m->names.clear();
+    }
     if (m->sock != BAD_SOCK) sock_close(m->sock);
     if (m->wake_rx != BAD_SOCK) sock_close(m->wake_rx);
     m->sock = m->wake_rx = BAD_SOCK;
@@ -510,6 +550,13 @@ Bytes Endpoint::certificate_der() const
     Bytes r(p, p + (n > 0 ? n : 0));
     OPENSSL_free(p);
     return r;
+}
+
+std::string Endpoint::peer_name(ConnId c) const
+{
+    std::lock_guard<std::mutex> l(m->names_mu);
+    auto it = m->names.find(c);
+    return it == m->names.end() ? std::string() : it->second;
 }
 
 Conn* Endpoint::Impl::new_conn(bool inbound, const sockaddr* remote, socklen_t rlen, const ngtcp2_pkt_hd* hd, const std::string& sni, ConnId id)
@@ -584,6 +631,10 @@ void Endpoint::Impl::drop(ConnId id, const std::string& reason, bool send_close)
 {
     auto it = conns.find(id);
     if (it == conns.end()) return;
+    {
+        std::lock_guard<std::mutex> l(names_mu);
+        names.erase(id);
+    }
     Conn& c = *it->second;
     if (send_close && c.conn && !ngtcp2_conn_in_closing_period(c.conn) && !ngtcp2_conn_in_draining_period(c.conn)) {
         uint8_t buf[1500];
