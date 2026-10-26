@@ -175,7 +175,8 @@ struct SyncState {
 SyncState sync_state(const NodeLook& look);
 const char* sync_name(SyncState::Kind kind);
 
-/** The node's height, peers (and the best height they told of) and mainchain sync in a look (each chain's look()). */
+/** The node's height, peers (and the best height they told of: its PeerView's tip_height) and mainchain sync in a look
+ *  (each chain's look()). */
 template <class N>
 void look_at_node(NodeLook& l, N& node, const std::string& network)
 {
@@ -187,8 +188,12 @@ void look_at_node(NodeLook& l, N& node, const std::string& network)
         ++l.connections;
         if (p.tip_height && (!l.peer_height || *p.tip_height > *l.peer_height)) l.peer_height = p.tip_height;
     }
-    const auto sp{node.sync_progress()};
-    l.mainchain_busy = sp.phase != decltype(sp)::Idle || sp.done < sp.total;
+    // A node that reads the mainchain in phases says how far (MainchainSyncProgress); one that does not, nothing.
+    l.mainchain_busy = false;
+    if constexpr (requires { node.sync_progress(); }) {
+        const auto sp{node.sync_progress()};
+        l.mainchain_busy = sp.phase != decltype(sp)::Idle || sp.done < sp.total;
+    }
     l.solo = network == "regtest";
 }
 
