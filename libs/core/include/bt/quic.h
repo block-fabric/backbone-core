@@ -6,12 +6,15 @@
 // on the exact conventions they use (lib/net/mod.rs, lib/net/peer/mod.rs):
 //  * QUIC v1, TLS 1.3, no ALPN at all (rustls rejects an offered-but-unmatched ALPN);
 //  * the server presents a fresh self-signed certificate (ECDSA P-256, like rcgen's
-//    default) for "localhost" + --server-name values; clients do not verify it;
+//    default) for "localhost" + --server-name values; clients do not verify it. Its subject
+//    CN names us, "<Name> <version> (Backbone drop-in)" (bt/agent.h; rcgen's default CN is
+//    "rcgen self signed cert"): the protocol has no user-agent field, and no message changes;
 //  * every message is its own bidirectional stream: magic(4) || bincode(msg), FIN; a
 //    response, if any, comes back on the same stream, FIN-terminated.
 // One endpoint (one UDP socket) serves inbound connections and dials outbound ones.
 #pragma once
 
+#include <bt/agent.h>
 #include <bt/bytes.h>
 
 #include <chrono>
@@ -29,6 +32,9 @@ struct SockAddr {
     std::string to_string() const;
     bool operator==(const SockAddr&) const = default;
 };
+
+/** Subject CN of a DER certificate (nullopt: unparsable, or no CN). */
+std::optional<std::string> certificate_cn(ByteSpan der);
 
 /** Resolve host:port to numeric addresses (IPv4 first). */
 std::vector<SockAddr> resolve(const std::string& host, uint16_t port);
@@ -48,6 +54,8 @@ struct Callbacks {
 struct Options {
     /** Extra DNS names for the self-signed certificate ("localhost" is always included). */
     std::vector<std::string> server_names;
+    /** "<Name> <version>" for our certificate's CN (bt::agent_cert_cn); empty: rcgen's CN. */
+    std::string agent = bt::agent();
     size_t max_request_bytes = 100 * 1024; // READ_REQUEST_LIMIT for peer-initiated streams
     std::chrono::milliseconds idle_timeout{30000};
     bool accept_inbound = true;
@@ -80,6 +88,11 @@ public:
     void close(ConnId c, const std::string& reason);
     /** DER of our certificate. */
     Bytes certificate_der() const;
+    /** The peer's name, known once on_connected fired (callable from any thread, also inside
+     *  on_connected): outbound, from its certificate CN (bt::peer_name_from_cn: ours, or
+     *  "unknown (upstream)"); inbound, "unknown" (clients present no certificate). Empty for
+     *  an unknown or closed connection. */
+    std::string peer_name(ConnId c) const;
 
     struct Impl; // implementation detail (public so file-local helpers can name it)
 

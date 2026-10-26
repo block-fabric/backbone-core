@@ -81,7 +81,7 @@ if(BT_BUILD_TESTS)
   target_include_directories(bt_core_test_cases PRIVATE tests)
   target_compile_definitions(bt_core_test_cases PRIVATE BT_CORE_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/data")
   if(BT_WITH_NET)
-    target_sources(bt_core_test_cases PRIVATE tests/test_grpc.cpp tests/test_security.cpp tests/test_ecies.cpp tests/test_appui.cpp)
+    target_sources(bt_core_test_cases PRIVATE tests/test_grpc.cpp tests/test_security.cpp tests/test_ecies.cpp tests/test_appui.cpp tests/test_quic_agent.cpp)
     target_link_libraries(bt_core_test_cases PUBLIC bt_net bt_appui)
   endif()
 
