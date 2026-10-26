@@ -156,16 +156,16 @@ struct NodeLook {
     std::vector<std::string> warnings;
     /** The best tip height the connected peers told of (unchecked claims: only shown); none until one did. */
     std::optional<uint32_t> peer_height;
-    /** The node is still reading the mainchain (MainchainSyncProgress not idle, or idle with done < total). */
-    bool mainchain_busy{false};
-    /** A network where a node alone is normal (regtest): up to date without peers. */
-    bool solo{false};
+    /** The height of the block of this chain most recently anchored on the mainchain (BMM) that the node knows, from
+     *  the latest mainchain blocks it read (the node's anchored_height); none when it knows none. */
+    std::optional<uint32_t> anchored_height;
 };
 
 /**
- * Whether the node is up to date, as every drop-in app says it (the status bar, Home): "synced" only with peers (or
- * solo), a height above 0, the mainchain read, and a height at least the best the peers told of; "waiting" without
- * peers; else "syncing", towards `target` (the peers' best, when known).
+ * Whether the node is up to date, as every drop-in app says it (the status bar, Home), from heights only: the network's
+ * height (`target`) is the best of the height its peers announce (unchecked: it can only raise the target) and the
+ * height last anchored on the mainchain (the floor); "synced" when the height is above 0 and at least the target,
+ * "syncing" below it, "waiting" (for peers) when no target is known. Display only: the node follows its own rules.
  */
 struct SyncState {
     enum Kind { Synced, Syncing, Waiting } kind{Waiting};
@@ -175,10 +175,10 @@ struct SyncState {
 SyncState sync_state(const NodeLook& look);
 const char* sync_name(SyncState::Kind kind);
 
-/** The node's height, peers (and the best height they told of: its PeerView's tip_height) and mainchain sync in a look
- *  (each chain's look()). */
+/** The node's height, peers (and the best height they announce) and the height last anchored on the mainchain, in a
+ *  look (each chain's look()). A node without anchored_height() gives none. */
 template <class N>
-void look_at_node(NodeLook& l, N& node, const std::string& network)
+void look_at_node(NodeLook& l, N& node, const std::string& /*network*/)
 {
     l.height = node.height();
     l.connections = 0;
@@ -188,13 +188,8 @@ void look_at_node(NodeLook& l, N& node, const std::string& network)
         ++l.connections;
         if (p.tip_height && (!l.peer_height || *p.tip_height > *l.peer_height)) l.peer_height = p.tip_height;
     }
-    // A node that reads the mainchain in phases says how far (MainchainSyncProgress); one that does not, nothing.
-    l.mainchain_busy = false;
-    if constexpr (requires { node.sync_progress(); }) {
-        const auto sp{node.sync_progress()};
-        l.mainchain_busy = sp.phase != decltype(sp)::Idle || sp.done < sp.total;
-    }
-    l.solo = network == "regtest";
+    l.anchored_height.reset();
+    if constexpr (requires { node.anchored_height(); }) l.anchored_height = node.anchored_height();
 }
 
 class Poller {
