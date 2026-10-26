@@ -13,8 +13,12 @@
 #include <bt/crypto.h>
 #include <bt/fsperm.h>
 #include <bt/hd.h>
+#include <bt/sidechain/anchor.h>
+#include <bt/mainchain.h>
 
 #include <filesystem>
+#include <set>
+#include <map>
 #include <fstream>
 #include <thread>
 
@@ -704,8 +708,9 @@ TEST(appui_display_text_refuses_controls_format_and_invisible_code_points)
     }
 }
 
-// The sync status every drop-in app shows (dropin.h sync_state, the tip event): "synced" only with peers, a height
-// above 0, the mainchain read and a height at least the peers' best; "waiting" without peers; else "syncing".
+// The sync status every drop-in app shows (dropin.h sync_state, the tip event), from heights only: up to date when the
+// height is above 0 and at least the network's (the peers' best, the anchored height its floor); "waiting" when no
+// network height is known; else "syncing" towards it.
 TEST(appui_dropin_sync_state)
 {
     NodeLook l;
@@ -713,7 +718,7 @@ TEST(appui_dropin_sync_state)
     l.tip = "aa";
     l.connections = 1;
     l.peer_height = 2343;
-    // The lab's case: synced, its mainchain idle with done = total = 0 (mainchain_sync_progress {idle, 0, 0, 0}).
+    // The lab's case: at the peers' height.
     CHECK(sync_state(l).kind == SyncState::Synced);
     UniValue t{tip_json(l)};
     CHECK_EQ(t["sync"].get_str(), std::string{"synced"});
@@ -723,10 +728,9 @@ TEST(appui_dropin_sync_state)
     // An old last block (a chain that makes blocks only when merge-mined) is still up to date: its time is now's.
     l.tip_time = 1000;
     CHECK(tip_json(l)["time"].getInt<int64_t>() > 1'700'000'000);
-    // Ahead of the peers' best: synced, the target ours.
+    // Ahead of the peers' best: synced.
     l.peer_height = 2000;
     CHECK(sync_state(l).kind == SyncState::Synced);
-    CHECK_EQ(*sync_state(l).target, uint32_t{2343});
     // Below a peer: syncing towards it, the progress the share of it.
     l.peer_height = 4686;
     t = tip_json(l);
@@ -735,31 +739,87 @@ TEST(appui_dropin_sync_state)
     CHECK(t["ibd"].get_bool());
     CHECK_EQ(t["progress"].get_real(), 0.5);
     CHECK_EQ(t["time"].getInt<int64_t>(), int64_t{1000});
-    // Block 0 is never up to date, even with peers at 0.
+    // The anchored height is the floor: a peer below it (or none) does not lower the target.
+    l.peer_height = 100;
+    l.anchored_height = 3000;
+    CHECK(sync_state(l).kind == SyncState::Syncing);
+    CHECK_EQ(*sync_state(l).target, uint32_t{3000});
+    l.peer_height.reset();
+    l.connections = 0;
+    CHECK(sync_state(l).kind == SyncState::Syncing);
+    // Alone, at the anchored height: up to date (no peer needed when the mainchain says how far the chain is).
+    l.anchored_height = 2343;
+    CHECK(sync_state(l).kind == SyncState::Synced);
+    // Block 0 is never up to date, even with a network at 0.
     l.height = 0;
-    l.peer_height = 0;
+    l.anchored_height = 0;
     CHECK(sync_state(l).kind == SyncState::Syncing);
     l.height.reset();
     CHECK(sync_state(l).kind == SyncState::Syncing);
-    // Peers that have not told their tip yet: not known to be up to date.
+    // No network height known (no peer has told its tip, nothing anchored known): waiting for peers, whatever ours.
     l.height = 10;
-    l.peer_height.reset();
-    CHECK(sync_state(l).kind == SyncState::Syncing);
-    CHECK(!sync_state(l).target);
-    CHECK_EQ(tip_json(l)["target"].getInt<int64_t>(), int64_t{-1});
-    // The mainchain still being read.
-    l.peer_height = 10;
-    l.mainchain_busy = true;
-    CHECK(sync_state(l).kind == SyncState::Syncing);
-    l.mainchain_busy = false;
-    CHECK(sync_state(l).kind == SyncState::Synced);
-    // No peer: waiting, whatever the height; on regtest (solo) a node alone is up to date, never at block 0.
-    l.connections = 0;
-    l.peer_height.reset();
+    l.anchored_height.reset();
     CHECK(sync_state(l).kind == SyncState::Waiting);
+    CHECK(!sync_state(l).target);
     CHECK_EQ(tip_json(l)["sync"].get_str(), std::string{"waiting"});
-    l.solo = true;
-    CHECK(sync_state(l).kind == SyncState::Synced);
-    l.height = 0;
-    CHECK(sync_state(l).kind == SyncState::Syncing);
+    CHECK_EQ(tip_json(l)["target"].getInt<int64_t>(), int64_t{-1});
+    l.connections = 2;
+    CHECK(sync_state(l).kind == SyncState::Waiting);
+}
+
+// The anchored height (bt/sidechain/anchor.h): from the mainchain tip back, the first commitment to a block known and not
+// invalid; one to a block not known (perhaps never published) or invalid is passed over; none past the depth.
+namespace {
+struct FakeMainHeader {
+    Hash32 prev;
+};
+struct FakeArchive {
+    std::map<Hash32, FakeMainHeader> main;
+    std::map<Hash32, bt::mainchain::BlockInfo> info;
+    std::map<Hash32, uint32_t> heights;
+    std::set<Hash32> bad;
+    bool has_main_block_info(int, const Hash32& h) const { return info.contains(h); }
+    bt::mainchain::BlockInfo main_block_info(int, const Hash32& h) const { return info.at(h); }
+    bool invalid(int, const Hash32& h) const { return bad.contains(h); }
+    std::optional<uint32_t> height(int, const Hash32& h) const
+    {
+        auto it{heights.find(h)};
+        return it == heights.end() ? std::nullopt : std::optional<uint32_t>{it->second};
+    }
+    std::optional<FakeMainHeader> main_header(int, const Hash32& h) const
+    {
+        auto it{main.find(h)};
+        return it == main.end() ? std::nullopt : std::optional<FakeMainHeader>{it->second};
+    }
+};
+Hash32 hash_of(uint8_t n)
+{
+    Hash32 h{};
+    h[0] = n;
+    return h;
+}
+} // namespace
+
+TEST(appui_dropin_anchored_height)
+{
+    FakeArchive a;
+    // Mainchain blocks 1..5 (5 the tip), each after the one before; 1's parent the zero hash.
+    for (uint8_t i = 1; i <= 5; ++i) a.main[hash_of(i)] = {i == 1 ? Hash32{} : hash_of(i - 1)};
+    for (uint8_t i = 1; i <= 5; ++i) a.info[hash_of(i)] = {};
+    CHECK(!bt::sidechain::anchored_height(a, 0, hash_of(5)));
+    // Block 2 commits to side block 100 (height 41): found from the tip back.
+    a.info[hash_of(2)].bmm_commitment = hash_of(100);
+    a.heights[hash_of(100)] = 41;
+    CHECK_EQ(*bt::sidechain::anchored_height(a, 0, hash_of(5)), uint32_t{41});
+    // Block 4 commits to a block not known: passed over. Then known (height 42): it.
+    a.info[hash_of(4)].bmm_commitment = hash_of(101);
+    CHECK_EQ(*bt::sidechain::anchored_height(a, 0, hash_of(5)), uint32_t{41});
+    a.heights[hash_of(101)] = 42;
+    CHECK_EQ(*bt::sidechain::anchored_height(a, 0, hash_of(5)), uint32_t{42});
+    // Invalid: passed over.
+    a.bad.insert(hash_of(101));
+    CHECK_EQ(*bt::sidechain::anchored_height(a, 0, hash_of(5)), uint32_t{41});
+    // Past the depth: none; no mainchain tip: none.
+    CHECK(!bt::sidechain::anchored_height(a, 0, hash_of(5), 3));
+    CHECK(!bt::sidechain::anchored_height(a, 0, std::nullopt));
 }
