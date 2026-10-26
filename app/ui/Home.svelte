@@ -11,6 +11,7 @@
   import { t } from '../../lib/i18n.svelte';
   import { go } from '../../lib/nav.svelte';
   import { mainLink } from '../../lib/mainlink.svelte';
+  import { nodeSyncStatus } from '../../lib/nodesync';
   import { sats } from './api';
   import { BALANCE_TITLE } from './spend';
   import ActivityList from './ActivityList.svelte';
@@ -28,6 +29,8 @@
   const ls = $derived(linkState(link));
   const recent = $derived(drop.history.slice(0, 8));
   const now = $derived(Math.floor(Date.now() / 1000) + drop.version * 0);
+  // The node's own judgement (bt::appui::sync_state, as the status bar shows it): Up to date, Syncing (h / target), Waiting for peers.
+  const sync = $derived(nodeSyncStatus(now));
 </script>
 
 <div class="page drop-home">
@@ -66,6 +69,7 @@
       {#if o}
         <div class="big num">{o.chain.height >= 0 ? formatCount(o.chain.height) : '–'}<span class="unit">{t('blocks')}</span></div>
         <dl class="facts">
+          <dt>{t('Sync')}</dt><dd><span class="dot {sync ? (sync.upToDate ? 'good' : 'warn') : ''}"></span> {sync ? (sync.upToDate ? t('Up to date') : sync.label) : '–'}</dd>
           <dt>{t('Peers')}</dt><dd class="num">{o.chain.peers}</dd>
           <dt>eCash</dt><dd><span class="dot {ls.tone}"></span> {linkText(link)}</dd>
           {#if link && link.height >= 0}<dt>{t('eCash block')}</dt><dd class="num">{formatCount(link.height)}</dd>{/if}

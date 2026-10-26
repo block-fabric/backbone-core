@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cstring>
 #include <ctime>
+#include <tuple>
 
 namespace bt::appui {
 
@@ -388,18 +389,52 @@ PendingPhrases::~PendingPhrases()
 }
 
 // ------------------------------------------------------------------ Poller
+SyncState sync_state(const NodeLook& look)
+{
+    SyncState s;
+    s.height = look.height.value_or(0);
+    if (look.peer_height) s.target = std::max(*look.peer_height, s.height);
+    if (look.connections == 0 && !look.solo) {
+        s.kind = SyncState::Waiting;
+        return s;
+    }
+    // Block 0 is never up to date (a fresh data folder, or a node that has not had a block yet), nor a node still
+    // reading the mainchain, nor one below what a peer has, nor one whose peers have not said yet (solo: its own).
+    const bool behind{look.peer_height ? *look.peer_height > s.height : !look.solo};
+    s.kind = s.height == 0 || look.mainchain_busy || behind ? SyncState::Syncing : SyncState::Synced;
+    return s;
+}
+
+const char* sync_name(SyncState::Kind kind)
+{
+    switch (kind) {
+    case SyncState::Synced: return "synced";
+    case SyncState::Syncing: return "syncing";
+    case SyncState::Waiting: return "waiting";
+    }
+    return "waiting";
+}
+
 UniValue tip_json(const NodeLook& look)
 {
+    const SyncState s{sync_state(look)};
+    const bool synced{s.kind == SyncState::Synced};
     UniValue t{UniValue::VOBJ};
-    // A chain with no block yet (a new network, a fresh data folder) has nothing to catch up on its side: its height is
-    // 0 and its time now, not 1970 (the kit would say "56 years behind"); the eCash link's own state is its banner's.
-    t.pushKV("height", look.height ? static_cast<int64_t>(*look.height) : int64_t{0});
-    t.pushKV("time", look.tip.empty() && look.tip_time == 0 ? static_cast<int64_t>(std::time(nullptr)) : static_cast<int64_t>(look.tip_time));
+    t.pushKV("height", static_cast<int64_t>(s.height));
+    // The time the kit's rule of a recent tip reads (lib/sync.ts): now when the node is up to date (a drop-in chain makes
+    // blocks only when someone merge-mines one: its last block may be hours old on a chain fully synced), else its tip's.
+    const auto now{static_cast<int64_t>(std::time(nullptr))};
+    t.pushKV("time", synced ? std::max(now, static_cast<int64_t>(look.tip_time)) : static_cast<int64_t>(look.tip_time));
     t.pushKV("hash", look.tip);
-    t.pushKV("progress", 1.0);
-    t.pushKV("state", "post_init");
-    t.pushKV("ibd", false);
+    double progress{synced ? 1.0 : 0.0};
+    if (!synced && s.target && *s.target > 0) progress = std::min(1.0, double(s.height) / double(*s.target));
+    t.pushKV("progress", progress);
+    t.pushKV("state", synced ? "synced" : "download");
+    t.pushKV("ibd", !synced);
     t.pushKV("loadingBlocks", false);
+    // The drop-in's own judgement (sync_state), which the kit shows as it is: "synced", "syncing" (towards target) or "waiting".
+    t.pushKV("sync", sync_name(s.kind));
+    t.pushKV("target", s.target ? static_cast<int64_t>(*s.target) : int64_t{-1});
     return t;
 }
 
@@ -473,7 +508,11 @@ void Poller::step()
         before = last_;
         last_ = now;
     }
-    if (!before || before->tip != now.tip || before->height != now.height) hub_.emit("tip", tip_json(now), "tip");
+    const auto sync_key{[](const NodeLook& l) {
+        const SyncState s{sync_state(l)};
+        return std::make_tuple(l.tip, l.height, s.kind, s.target);
+    }};
+    if (!before || sync_key(*before) != sync_key(now)) hub_.emit("tip", tip_json(now), "tip");
     if (!before || before->connections != now.connections) {
         UniValue c{UniValue::VOBJ};
         c.pushKV("count", static_cast<uint64_t>(now.connections));
@@ -534,10 +573,12 @@ UniValue Poller::snapshot() const
     for (const auto& x : look.warnings) w.push_back(x);
     s.pushKV("warnings", w);
     s.pushKV("tip", tip_json(look));
-    // The headers are the blocks (a drop-in node takes a block with its header): the same height and time as the tip.
+    // The headers: the best height known (the peers' best, sync_state's target), else the blocks' (a drop-in node takes a
+    // block with its header).
     const UniValue tip{tip_json(look)};
+    const int64_t target{tip.find_value("target").getInt<int64_t>()};
     UniValue h{UniValue::VOBJ};
-    h.pushKV("height", tip.find_value("height"));
+    h.pushKV("height", std::max(target, tip.find_value("height").getInt<int64_t>()));
     h.pushKV("time", tip.find_value("time"));
     s.pushKV("headerTip", h);
     UniValue wallets{UniValue::VARR};
