@@ -75,6 +75,9 @@ struct PeerView {
     bool connected = false;
     bool inbound = false;
     std::string name; // quic::Endpoint::peer_name: "<Name> <version>", "unknown (upstream)", "unknown"; empty until connected
+    /** The height of the tip the peer last told of (its heartbeat's PeerState), unchecked: what the app's sync status
+     *  compares ours with (bt::appui::sync_state), never what the node follows. */
+    std::optional<uint32_t> tip_height;
 };
 
 /** types MainchainSyncProgress */
@@ -520,7 +523,11 @@ public:
     {
         std::lock_guard<std::mutex> l(peers_mu_);
         std::vector<PeerView> r;
-        for (auto& [c, p] : peers_) r.push_back({p.addr, p.connected, p.inbound, p.name});
+        for (auto& [c, p] : peers_) {
+            std::optional<uint32_t> h;
+            if (p.state && p.state->tip_info) h = p.state->tip_info->block_height;
+            r.push_back({p.addr, p.connected, p.inbound, p.name, h});
+        }
         return r;
     }
     SyncProgress sync_progress()

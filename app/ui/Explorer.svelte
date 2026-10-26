@@ -1,13 +1,17 @@
 <script lang="ts">
-  // The block explorer of this chain: its latest blocks, a search (a height, a block or transaction hash, an address or
-  // a deposit address), and the details of a block, a transaction or an address, read from this node.
+  // The block explorer of this chain: its latest blocks (the kit's ribbon of boxes, as every app of ours draws them, then
+  // the table), a search (a height, a block or transaction hash, an address or a deposit address), and the details of a
+  // block, a transaction or an address, read from this node.
   import Amount from '../../components/Amount.svelte';
+  import BlockRibbon from '../../components/BlockRibbon.svelte';
   import CopyButton from '../../components/CopyButton.svelte';
   import DataTable from '../../components/DataTable.svelte';
   import Icon from '../../components/Icon.svelte';
   import Meter from '../../components/Meter.svelte';
   import { errorText } from '../../lib/dialogs.svelte';
+  import { TARGET_SPACING, type RibbonBlock } from '../../lib/blocks';
   import { formatBytes, formatCount, formatTime, shortHash } from '../../lib/format';
+  import { every } from '../../lib/poll';
   import { t } from '../../lib/i18n.svelte';
   import { nav, takeFocus } from '../../lib/nav.svelte';
   import { prefs } from '../../lib/state.svelte';
@@ -96,6 +100,44 @@
     { key: 'fees', label: `Fees (${unitInfo(prefs.unit).short})`, value: (b) => b.fees, width: '10rem', align: 'end' },
   ]);
   const tip = $derived(drop.overview?.chain.height ?? -1);
+
+  // The ribbon: the blocks of the page as boxes, newest first (components/BlockRibbon.svelte); a box opens its block.
+  let nowSecs = $state(Math.floor(Date.now() / 1000));
+  $effect(() => every(15000, () => (nowSecs = Math.floor(Date.now() / 1000))));
+  const ribbon = $derived(
+    [...blocks]
+      .sort((a, b) => b.height - a.height)
+      .map(
+        (b): RibbonBlock => ({
+          height: b.height,
+          hash: b.hash,
+          time: b.time ?? 0,
+          nTx: b.txs,
+          weight: null,
+          // No subsidy on a drop-in chain: what a block's maker gets is its fees.
+          subsidy: 0,
+          fees: Number(sats(b.fees)),
+          feeRate: null,
+          tag: '',
+          bmm: [],
+          bytes: b.bytes,
+          limit: b.limit,
+        }),
+      ),
+  );
+  // A new block while the page is shown: it slides in once.
+  let fresh = $state<string | null>(null);
+  let topSeen: string | null = null;
+  $effect(() => {
+    const top = ribbon[0]?.hash ?? null;
+    if (!top || from !== undefined) return;
+    const changed = topSeen !== null && topSeen !== top;
+    topSeen = top;
+    if (!changed) return;
+    fresh = top;
+    const timer = setTimeout(() => (fresh = null), 1500);
+    return () => clearTimeout(timer);
+  });
   void nav;
 </script>
 
@@ -120,6 +162,9 @@
   {/if}
 
   {#if view.kind === 'list'}
+    {#if ribbon.length}
+      <BlockRibbon blocks={ribbon} {selected} {fresh} now={nowSecs} onselect={(hash) => ((selected = hash), openBlock(hash))} blockTarget={TARGET_SPACING} />
+    {/if}
     <div class="holder">
       <DataTable rows={blocks} {columns} key={(b) => b.hash} bind:selected bind:sortKey bind:sortDir label={t('Blocks')} empty={t('No block yet')} onactivate={(b) => openBlock(b.hash)}>
         {#snippet cell(row, column)}
