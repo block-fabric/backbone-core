@@ -645,3 +645,63 @@ TEST(appui_node_state_and_events_hide_the_wallet_from_a_caller_without_the_walle
     CHECK(types(host.events_for(seq, std::chrono::milliseconds{400}, "app")).find("wallet.balance") != std::string::npos);
     host.stop();
 }
+
+// The sync status every drop-in app shows (dropin.h sync_state, the tip event): "synced" only with peers, a height
+// above 0, the mainchain read and a height at least the peers' best; "waiting" without peers; else "syncing".
+TEST(appui_dropin_sync_state)
+{
+    NodeLook l;
+    l.height = 2343;
+    l.tip = "aa";
+    l.connections = 1;
+    l.peer_height = 2343;
+    // The lab's case: synced, its mainchain idle with done = total = 0 (mainchain_sync_progress {idle, 0, 0, 0}).
+    CHECK(sync_state(l).kind == SyncState::Synced);
+    UniValue t{tip_json(l)};
+    CHECK_EQ(t["sync"].get_str(), std::string{"synced"});
+    CHECK(!t["ibd"].get_bool());
+    CHECK_EQ(t["progress"].get_real(), 1.0);
+    CHECK_EQ(t["target"].getInt<int64_t>(), int64_t{2343});
+    // An old last block (a chain that makes blocks only when merge-mined) is still up to date: its time is now's.
+    l.tip_time = 1000;
+    CHECK(tip_json(l)["time"].getInt<int64_t>() > 1'700'000'000);
+    // Ahead of the peers' best: synced, the target ours.
+    l.peer_height = 2000;
+    CHECK(sync_state(l).kind == SyncState::Synced);
+    CHECK_EQ(*sync_state(l).target, uint32_t{2343});
+    // Below a peer: syncing towards it, the progress the share of it.
+    l.peer_height = 4686;
+    t = tip_json(l);
+    CHECK(sync_state(l).kind == SyncState::Syncing);
+    CHECK_EQ(t["sync"].get_str(), std::string{"syncing"});
+    CHECK(t["ibd"].get_bool());
+    CHECK_EQ(t["progress"].get_real(), 0.5);
+    CHECK_EQ(t["time"].getInt<int64_t>(), int64_t{1000});
+    // Block 0 is never up to date, even with peers at 0.
+    l.height = 0;
+    l.peer_height = 0;
+    CHECK(sync_state(l).kind == SyncState::Syncing);
+    l.height.reset();
+    CHECK(sync_state(l).kind == SyncState::Syncing);
+    // Peers that have not told their tip yet: not known to be up to date.
+    l.height = 10;
+    l.peer_height.reset();
+    CHECK(sync_state(l).kind == SyncState::Syncing);
+    CHECK(!sync_state(l).target);
+    CHECK_EQ(tip_json(l)["target"].getInt<int64_t>(), int64_t{-1});
+    // The mainchain still being read.
+    l.peer_height = 10;
+    l.mainchain_busy = true;
+    CHECK(sync_state(l).kind == SyncState::Syncing);
+    l.mainchain_busy = false;
+    CHECK(sync_state(l).kind == SyncState::Synced);
+    // No peer: waiting, whatever the height; on regtest (solo) a node alone is up to date, never at block 0.
+    l.connections = 0;
+    l.peer_height.reset();
+    CHECK(sync_state(l).kind == SyncState::Waiting);
+    CHECK_EQ(tip_json(l)["sync"].get_str(), std::string{"waiting"});
+    l.solo = true;
+    CHECK(sync_state(l).kind == SyncState::Synced);
+    l.height = 0;
+    CHECK(sync_state(l).kind == SyncState::Syncing);
+}

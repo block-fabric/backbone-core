@@ -6,6 +6,7 @@
   import { formatCount, formatTime } from '../../lib/format';
   import { t } from '../../lib/i18n.svelte';
   import { nav } from '../../lib/nav.svelte';
+  import { nodeSyncStatus } from '../../lib/nodesync';
   import { app, toast } from '../../lib/state.svelte';
   import { host } from '../../lib/rpc';
   import { dropin, type Peer } from './api';
@@ -13,6 +14,7 @@
   import { drop, embedded, follow } from './store.svelte';
 
   $effect(() => follow());
+  const sync = $derived(nodeSyncStatus(Math.floor(Date.now() / 1000) + drop.version * 0));
 
   const TABS = [
     { id: 'info', label: 'Information' },
@@ -73,6 +75,7 @@
             <dt>{t('Network')}</dt><dd>{o?.chain.network ?? app.info?.network ?? '–'}</dd>
             <dt>{t('Slot on eCash')}</dt><dd class="num">{o?.chain.slot ?? '–'}</dd>
             <dt>{t('Blocks')}</dt><dd class="num">{o && o.chain.height >= 0 ? formatCount(o.chain.height) : '–'}</dd>
+            <dt>{t('Sync')}</dt><dd>{sync ? (sync.upToDate ? t('Up to date') : sync.label) : '–'}</dd>
             <dt>{t('Tip')}</dt><dd class="mono break">{o?.chain.tip || '–'}</dd>
             <dt>{t('Peers')}</dt><dd class="num">{o?.chain.peers ?? '–'}</dd>
             {#if app.info?.datadir}<dt>{t('Data folder')}</dt><dd class="mono break">{app.info.datadir}</dd>{/if}

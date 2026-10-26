@@ -106,10 +106,13 @@
     border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
     background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 9%, var(--surface)), var(--surface) 60%);
   }
+  /* No panel-head above it: the kit's .panel-body has no top padding (it follows a head), so the title and its icon
+     would touch the top edge of the box. */
   .panel-body {
     display: flex;
     flex-direction: column;
     gap: 1rem;
+    padding-top: 1.2rem;
   }
   .lead {
     display: flex;
