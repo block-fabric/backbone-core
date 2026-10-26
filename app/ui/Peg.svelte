@@ -207,7 +207,7 @@
           <div class="row"><button type="submit" class="btn primary" disabled={!wReady}><Icon name="up" size={16} /> {t('Review and withdraw…')}</button></div>
         </form>
       </section>
-      <aside class="panel">
+      <aside class="panel side">
         <div class="panel-body">
           <h3>{t('How a withdrawal is paid')}</h3>
           <ol class="steps">
@@ -332,6 +332,10 @@
   h3 {
     font-size: 1rem;
     margin: 0 0 0.6rem;
+  }
+  /* No panel-head above it (the kit's .panel-body has no top padding). */
+  .side .panel-body {
+    padding-top: 1.1rem;
   }
   .wds {
     list-style: none;
