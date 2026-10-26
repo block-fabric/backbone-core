@@ -139,7 +139,7 @@ private:
 
 /**
  * The node's state as the template's events (nodeevents.h): looked at every second, an event where it changed.
- *   tip {height, time, hash, progress, state, ibd, loadingBlocks}, connections {count}, alert {warnings},
+ *   tip {height, time, hash, progress, state, ibd, loadingBlocks, sync, target}, connections {count}, alert {warnings},
  *   wallet.loaded {name, ...} / wallet.unloaded {name}, wallet.balance {name, trusted, untrusted_pending, immature},
  *   wallet.tx {name, txid, change: "new"|"confirmed"|"gone"}, mainlink {state} (the link changed).
  */
@@ -154,7 +154,43 @@ struct NodeLook {
     /** The wallet's transactions, by txid, and whether each is in a block. */
     std::map<std::string, bool> txs;
     std::vector<std::string> warnings;
+    /** The best tip height the connected peers told of (unchecked claims: only shown); none until one did. */
+    std::optional<uint32_t> peer_height;
+    /** The node is still reading the mainchain (MainchainSyncProgress not idle, or idle with done < total). */
+    bool mainchain_busy{false};
+    /** A network where a node alone is normal (regtest): up to date without peers. */
+    bool solo{false};
 };
+
+/**
+ * Whether the node is up to date, as every drop-in app says it (the status bar, Home): "synced" only with peers (or
+ * solo), a height above 0, the mainchain read, and a height at least the best the peers told of; "waiting" without
+ * peers; else "syncing", towards `target` (the peers' best, when known).
+ */
+struct SyncState {
+    enum Kind { Synced, Syncing, Waiting } kind{Waiting};
+    uint32_t height{0};
+    std::optional<uint32_t> target;
+};
+SyncState sync_state(const NodeLook& look);
+const char* sync_name(SyncState::Kind kind);
+
+/** The node's height, peers (and the best height they told of) and mainchain sync in a look (each chain's look()). */
+template <class N>
+void look_at_node(NodeLook& l, N& node, const std::string& network)
+{
+    l.height = node.height();
+    l.connections = 0;
+    l.peer_height.reset();
+    for (const auto& p : node.peers()) {
+        if (!p.connected) continue;
+        ++l.connections;
+        if (p.tip_height && (!l.peer_height || *p.tip_height > *l.peer_height)) l.peer_height = p.tip_height;
+    }
+    const auto sp{node.sync_progress()};
+    l.mainchain_busy = sp.phase != decltype(sp)::Idle || sp.done < sp.total;
+    l.solo = network == "regtest";
+}
 
 class Poller {
 public:
