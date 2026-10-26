@@ -17,8 +17,17 @@ add_library(bt_core STATIC
   src/sidechain.cpp
   src/zmq.cpp
   src/fsperm.cpp
-  src/sidechain_types.cpp)
+  src/sidechain_types.cpp
+  src/agent.cpp)
 target_include_directories(bt_core PUBLIC include)
+# Our product name and version (bt/agent.h), set by the drop-in before add_subdirectory(core).
+if(NOT DEFINED BT_AGENT_NAME)
+  set(BT_AGENT_NAME "Backbone")
+endif()
+if(NOT DEFINED BT_AGENT_VERSION)
+  set(BT_AGENT_VERSION "${PROJECT_VERSION}")
+endif()
+set_source_files_properties(src/agent.cpp PROPERTIES COMPILE_DEFINITIONS "BT_AGENT_NAME=\"${BT_AGENT_NAME}\";BT_AGENT_VERSION=\"${BT_AGENT_VERSION}\"")
 target_link_libraries(bt_core PUBLIC bt_blake3 bt_univalue PkgConfig::SODIUM PkgConfig::SQLITE)
 if(BT_STATIC)
   target_compile_definitions(bt_core PUBLIC SODIUM_STATIC)
