@@ -24,7 +24,6 @@
   import { unitInfo } from '../../lib/units';
   import { DROPIN } from '../dropin.config';
   import { dropin, sats, type AddressDetail, type BlockDetail, type BlockSummary, type TxDetail } from './api';
-  import OutputValue from './OutputValue.svelte';
   import { drop, follow } from './store.svelte';
   import { untrack } from 'svelte';
 
@@ -404,7 +403,7 @@
               <button type="button" class="link mono" onclick={() => openAddress(o.address)}>{o.address}</button>
               {#if o.mine}<span class="badge">{t('yours')}</span>{/if}
               {#if o.kind === 'withdrawal'}<span class="badge warning" title={o.mainAddress}>{t('withdrawal to %1', shortHash(o.mainAddress ?? '', 10))}</span>{/if}
-              <OutputValue {o} />
+              <Amount sats={sats(o.amount)} />
             </li>
           {/each}
         </ul>
