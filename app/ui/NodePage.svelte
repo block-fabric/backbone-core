@@ -115,10 +115,11 @@
       <div class="panel-body">
         {#if peers.length === 0}<p class="muted">{t('No peer.')}</p>{/if}
         <ul class="peers">
-          {#each peers as p (p.address)}
+          {#each peers as p (p.address + (p.inbound ? ' in' : ' out'))}
             <li>
               <span class="dot" class:on={p.connected}></span>
               <span class="mono grow">{p.address}</span>
+              {#if p.name}<span class="muted">{p.name}</span>{/if}
               <span class="muted">{p.connected ? (p.inbound ? t('connected, inbound') : t('connected')) : t('connecting')}</span>
               <button type="button" class="btn ghost small" onclick={() => forget(p.address)}>{t('Forget')}</button>
             </li>

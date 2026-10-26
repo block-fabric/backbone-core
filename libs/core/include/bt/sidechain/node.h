@@ -74,6 +74,7 @@ struct PeerView {
     quic::SockAddr address;
     bool connected = false;
     bool inbound = false;
+    std::string name; // quic::Endpoint::peer_name: "<Name> <version>", "unknown (upstream)", "unknown"; empty until connected
 };
 
 /** types MainchainSyncProgress */
@@ -275,7 +276,8 @@ public:
                 p.addr = a;
                 p.inbound = inbound;
                 p.connected = true;
-                LOG_INFO("peer %s connected (%s)", a.to_string().c_str(), inbound ? "inbound" : "outbound");
+                p.name = ep_->peer_name(c);
+                LOG_INFO("peer %s connected (%s, %s)", a.to_string().c_str(), inbound ? "inbound" : "outbound", p.name.c_str());
             };
             // never take the node lock on the QUIC I/O thread
             cb.on_request = [this](quic::ConnId c, int64_t s, Bytes p) { post_serve([this, c, s, p = std::move(p)]() mutable { on_request(c, s, std::move(p)); }); };
@@ -293,7 +295,8 @@ public:
             opt.max_request_bytes = READ_REQUEST_LIMIT;
             ep_ = std::make_unique<quic::Endpoint>(cb, opt);
             if (!ep_->start(cfg_.net_addr, err)) return false;
-            LOG_INFO("P2P listening on %s (magic %s)", ep_->local_address().to_string().c_str(), hex_encode(ByteSpan(magic_.data(), 4)).c_str());
+            LOG_INFO("P2P listening on %s (magic %s) as \"%s\"", ep_->local_address().to_string().c_str(), hex_encode(ByteSpan(magic_.data(), 4)).c_str(),
+                     agent_cert_cn(opt.agent).c_str());
             if (cfg_.use_seeds)
                 for (auto& s : C::seed_peers(cfg_.network)) dial_targets_[s] = 0;
             for (auto& p : cfg_.add_peers)
@@ -508,7 +511,7 @@ public:
     {
         std::lock_guard<std::mutex> l(peers_mu_);
         std::vector<PeerView> r;
-        for (auto& [c, p] : peers_) r.push_back({p.addr, p.connected, p.inbound});
+        for (auto& [c, p] : peers_) r.push_back({p.addr, p.connected, p.inbound, p.name});
         return r;
     }
     SyncProgress sync_progress()
@@ -898,6 +901,7 @@ private:
         quic::SockAddr addr;
         std::string dial;
         bool connected = false, inbound = false;
+        std::string name; // quic::Endpoint::peer_name
         std::optional<PeerState> state;
         int64_t last_sync_try = 0;
         bool bodies_chain = false; // a request_bodies chain is running for this peer
