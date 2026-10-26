@@ -393,15 +393,15 @@ SyncState sync_state(const NodeLook& look)
 {
     SyncState s;
     s.height = look.height.value_or(0);
-    if (look.peer_height) s.target = std::max(*look.peer_height, s.height);
-    if (look.connections == 0 && !look.solo) {
+    // The network's height: the anchored one its floor, a peer's claim only above it.
+    if (look.anchored_height) s.target = look.anchored_height;
+    if (look.peer_height && (!s.target || *look.peer_height > *s.target)) s.target = look.peer_height;
+    if (!s.target) {
         s.kind = SyncState::Waiting;
         return s;
     }
-    // Block 0 is never up to date (a fresh data folder, or a node that has not had a block yet), nor a node still
-    // reading the mainchain, nor one below what a peer has, nor one whose peers have not said yet (solo: its own).
-    const bool behind{look.peer_height ? *look.peer_height > s.height : !look.solo};
-    s.kind = s.height == 0 || look.mainchain_busy || behind ? SyncState::Syncing : SyncState::Synced;
+    // Block 0 is never up to date (a fresh data folder, or a node that has not had a block yet).
+    s.kind = s.height > 0 && s.height >= *s.target ? SyncState::Synced : SyncState::Syncing;
     return s;
 }
 

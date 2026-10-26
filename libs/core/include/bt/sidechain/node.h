@@ -36,6 +36,7 @@
 #include <bt/log.h>
 #include <bt/parse.h>
 #include <bt/quic.h>
+#include <bt/sidechain/anchor.h>
 #include <bt/sidechain/archive.h>
 #include <bt/sidechain/p2p.h>
 #include <bt/sidechain/peg.h>
@@ -357,6 +358,13 @@ public:
     {
         BT_NODE_LOCKED;
         return state_.height(t);
+    }
+    /** The height of our block last anchored on the mainchain that we know (bt::sidechain::anchored_height): the floor of
+     *  the network's height in the app's sync status, display only. */
+    std::optional<uint32_t> anchored_height()
+    {
+        BT_NODE_LOCKED;
+        return bt::sidechain::anchored_height(archive_, t, side_tips_.mainchain_tip(t));
     }
     std::optional<Hash32> block_hash_at(uint32_t h)
     {
