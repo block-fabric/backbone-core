@@ -277,3 +277,22 @@ TEST(mnemonic_errors_as_tiny_bip39)
     CHECK_EQ(bt::hd::mnemonic_error("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon"),
              std::string("invalid checksum"));
 }
+
+// thunder-rust v0.19 (6b5e114): BLAKE3 in place of HMAC-SHA512. Known answers from an independent implementation over
+// blake3 1.8.7 and curve25519-dalek 4.1.3 (seed 00..3f, m/43'/1899'/0'/9'/0'/i).
+TEST(hd_v0_19_blake3_derivation)
+{
+    bt::frost::init();
+    bt::ByteArray<64> seed;
+    for (int i = 0; i < 64; i++) seed[i] = uint8_t(i);
+    auto m = bt::hd::Xpriv::master(seed, bt::hd::Variant::V0_19);
+    CHECK_EQ(bt::hex_encode(m.secret.span()), std::string("43af62fb916b74ee4914b48a0a96e9486af0fda8133531340a558e85207ec302"));
+    CHECK_EQ(bt::hex_encode(m.chaincode.span()), std::string("0db58b14ec49e12ab96587c51e432a7c7f9348894d2368862eb28d48968874e8"));
+    CHECK_EQ(bt::hex_encode(bt::hd::sidechain_signing_key(seed, 9, 1, bt::hd::Variant::V0_19).verifying_key().span()),
+             std::string("80135d28caa52eb2416c488cf3d162d3f8e1611a7565a7064367a2bc5a020607"));
+    CHECK_EQ(bt::hex_encode(bt::hd::sidechain_signing_key(seed, 9, 2, bt::hd::Variant::V0_19).verifying_key().span()),
+             std::string("1e81c1534f5db94d990cff7b0a81d60b01591c5548d0faacc6ca506cf811a107"));
+    // a seed gives other keys than under v0.18.1: a 0.18 wallet's coins are not found by the 0.19 derivation
+    CHECK(bt::hd::sidechain_signing_key(seed, 9, 1, bt::hd::Variant::V0_19).verifying_key() !=
+          bt::hd::sidechain_signing_key(seed, 9, 1, bt::hd::Variant::V0_18_1).verifying_key());
+}

@@ -142,6 +142,37 @@ static frost::Scalar scalar_from_be(const uint8_t* be32, Variant v)
     return s;
 }
 
+// v0.19 (lib/wallet/bip32.rs, 6b5e114): scalar_from_uniform_be_bytes over 64 bytes, from_bytes_mod_order_wide
+static frost::Scalar scalar_from_be64(const uint8_t* be64)
+{
+    uint8_t wide[64];
+    for (int i = 0; i < 64; i++) wide[i] = be64[63 - i];
+    frost::Scalar s;
+    crypto_core_ristretto255_scalar_reduce(s.data(), wide);
+    return s;
+}
+
+/** 96 bytes of XOF: tweak (64, big-endian) then chaincode (32). */
+static Xpriv from_xof(const Blake3& h)
+{
+    uint8_t out[96];
+    h.finalize_xof(out, sizeof(out));
+    Xpriv x;
+    x.secret = scalar_from_be64(out);
+    std::memcpy(x.chaincode.data(), out + 64, 32);
+    sodium_memzero(out, sizeof(out));
+    return x;
+}
+
+static Xpriv finish_v019(const Xpriv& parent, const Blake3& h)
+{
+    Xpriv t = from_xof(h);
+    Xpriv c;
+    crypto_core_ristretto255_scalar_add(c.secret.data(), parent.secret.data(), t.secret.data());
+    c.chaincode = t.chaincode;
+    return c;
+}
+
 static Xpriv finish(const Xpriv& parent, const ByteArray<64>& d, Variant v)
 {
     Xpriv c;
@@ -154,6 +185,11 @@ static Xpriv finish(const Xpriv& parent, const ByteArray<64>& d, Variant v)
 Xpriv Xpriv::master(const ByteArray<64>& seed, Variant v)
 {
     frost::init();
+    if (v == Variant::V0_19) {
+        Blake3 h = Blake3::derive_key("Thunder seed");
+        h.update(seed.span());
+        return from_xof(h);
+    }
     auto d = hmac_sha512(ByteSpan((const uint8_t*)"Bitcoin seed", 12), seed.span());
     Xpriv x;
     x.secret = scalar_from_be(d.data(), v);
@@ -168,6 +204,12 @@ Xpriv Xpriv::derive_hardened(uint32_t index, Variant v) const
     append(m, secret.span()); // PrimeField repr: 32-byte little-endian
     uint32_t n = index | 0x80000000u;
     for (int i = 3; i >= 0; i--) m.push_back(uint8_t(n >> (8 * i)));
+    if (v == Variant::V0_19) {
+        Blake3 h(chaincode);
+        h.update(ByteSpan(m.data(), m.size()));
+        sodium_memzero(m.data(), m.size());
+        return finish_v019(*this, h);
+    }
     return finish(*this, hmac_sha512(chaincode.span(), m), v);
 }
 
@@ -177,6 +219,11 @@ Xpriv Xpriv::derive_non_hardened(uint32_t index, Variant v) const
     frost::SigningKey sk{secret};
     append(m, sk.verifying_key().span()); // GroupEncoding: compressed ristretto point
     for (int i = 3; i >= 0; i--) m.push_back(uint8_t(index >> (8 * i)));
+    if (v == Variant::V0_19) {
+        Blake3 h(chaincode);
+        h.update(ByteSpan(m.data(), m.size()));
+        return finish_v019(*this, h);
+    }
     return finish(*this, hmac_sha512(chaincode.span(), m), v);
 }
 

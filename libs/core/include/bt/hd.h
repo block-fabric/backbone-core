@@ -10,6 +10,9 @@
 //    HMAC-SHA512(chaincode, compressed_point || be32(i)); tweak = left half read as a
 //    big-endian integer (with its top 3 bits cleared since v0.18.1, the "bias fix")
 //    reduced mod L; child scalar = parent + tweak; chaincode = right half.
+//  * since thunder-rust v0.19.0 (6b5e114, the networks it has: mainnet...), the same tree with BLAKE3 for HMAC-SHA512:
+//    master = BLAKE3 derive_key("Thunder seed") over the seed, child = BLAKE3 keyed by the chaincode over the same
+//    bytes; 96 bytes of XOF output, the first 64 read as a big-endian integer reduced mod L, the last 32 the chaincode.
 #pragma once
 
 #include <bt/bytes.h>
@@ -38,7 +41,8 @@ ByteArray<64> mnemonic_to_seed(const std::string& normalised_phrase, const std::
 
 enum class Variant {
     V0_18_1, // current: clear the top 3 bits before reduction (thunder-rust >= 0.18.1)
-    V0_18_0  // pre-fix wallets (thunder-rust 0.18.0): plain big-endian reduction
+    V0_18_0, // pre-fix wallets (thunder-rust 0.18.0): plain big-endian reduction
+    V0_19    // thunder-rust >= 0.19.0: BLAKE3 (master context "Thunder seed"), 512-bit reduction
 };
 
 struct Xpriv {
